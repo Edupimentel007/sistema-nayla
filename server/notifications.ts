@@ -5,6 +5,8 @@ type Row = Record<string, any>;
 export type WhatsAppMode = 'disabled' | 'simulate' | 'meta';
 export type NotificationStatus = 'pending' | 'opted_out' | 'simulated' | 'not_configured' |
   'accepted' | 'sent' | 'delivered' | 'read' | 'failed';
+export type BookingChangeKind = 'client_rescheduled' | 'client_cancelled' |
+  'owner_rescheduled' | 'owner_reschedule_request' | 'owner_cancelled';
 
 export class NotificationError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -54,8 +56,8 @@ export function ensureWhatsAppSettings(businessId: string): Row {
   return db.prepare('SELECT * FROM business_whatsapp_settings WHERE business_id=?').get(businessId) as Row;
 }
 
-function metaReady(row: Row) {
-  if (row.mode !== 'meta' || !row.phone_number_id || !row.template_name ||
+function metaReady(row: Row, templateName: string | null) {
+  if (row.mode !== 'meta' || !row.phone_number_id || !templateName ||
     !row.access_token_encrypted || !row.app_secret_encrypted || !encryptionKey()) return false;
   try {
     return Boolean(decryptSecret(row.access_token_encrypted, row.business_id) &&
@@ -67,8 +69,10 @@ export function whatsAppConfig(businessId: string, origin: string) {
   const row = ensureWhatsAppSettings(businessId);
   return {
     mode: row.mode as WhatsAppMode,
-    configured: metaReady(row),
+    configured: metaReady(row, row.template_name),
+    urgentConfigured: metaReady(row, row.urgent_template_name),
     templateName: row.template_name || null,
+    urgentTemplateName: row.urgent_template_name || null,
     sender: row.sender || null,
     senderVerified: false,
     phoneNumberId: row.phone_number_id || null,
@@ -83,6 +87,7 @@ export function whatsAppConfig(businessId: string, origin: string) {
 export type ConfigUpdate = {
   mode: WhatsAppMode;
   templateName: string;
+  urgentTemplateName?: string;
   sender: string;
   phoneNumberId: string;
   accessToken?: string | null;
@@ -96,9 +101,11 @@ export function updateWhatsAppSettings(businessId: string, input: ConfigUpdate, 
   const appSecret = input.appSecret === null ? null : input.appSecret?.trim()
     ? encryptSecret(input.appSecret.trim(), businessId) : previous.app_secret_encrypted;
   db.prepare(`UPDATE business_whatsapp_settings
-    SET mode=?,template_name=?,sender=?,phone_number_id=?,access_token_encrypted=?,
+    SET mode=?,template_name=?,urgent_template_name=?,sender=?,phone_number_id=?,access_token_encrypted=?,
       app_secret_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE business_id=?`)
-    .run(input.mode, input.templateName.trim() || null, input.sender.trim() || null,
+    .run(input.mode, input.templateName.trim() || null,
+      input.urgentTemplateName === undefined ? previous.urgent_template_name : input.urgentTemplateName.trim() || null,
+      input.sender.trim() || null,
       input.phoneNumberId.trim() || null, accessToken, appSecret, businessId);
   return whatsAppConfig(businessId, origin);
 }
@@ -120,29 +127,36 @@ function recipientNumber(phone: string) {
   return null;
 }
 
-export async function sendBookingConfirmation(details: Confirmation): Promise<NotificationStatus> {
-  const business = db.prepare('SELECT name FROM businesses WHERE id=?').get(details.businessId) as Row | undefined;
+type OutgoingNotification = {
+  businessId: string;
+  appointmentId: string;
+  recipient: string;
+  kind: 'booking_confirmation' | BookingChangeKind;
+  message: string;
+  template: 'confirmation' | 'urgent';
+  parameters: string[];
+};
+
+async function dispatchNotification(details: OutgoingNotification): Promise<NotificationStatus> {
   const consent = db.prepare(`SELECT a.whatsapp_opt_in AS booking_consent,u.whatsapp_opt_in AS client_consent
     FROM appointments a JOIN users u ON u.id=a.client_id
     WHERE a.id=? AND a.business_id=?`).get(details.appointmentId, details.businessId) as Row | undefined;
-  if (!business || !consent) throw new NotificationError(404, 'Agendamento não encontrado.');
+  if (!consent) throw new NotificationError(404, 'Agendamento não encontrado.');
   const settings = ensureWhatsAppSettings(details.businessId);
-  const weekday = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' })
-    .format(new Date(`${details.date}T12:00:00Z`));
-  const formattedDate = details.date.split('-').reverse().join('/');
-  const message = `Olá, ${details.clientName}! Seu agendamento com ${business.name} para ${details.serviceName} está confirmado: ${weekday}, ${formattedDate}, às ${details.time}. Até lá!`;
+  const templateName = details.template === 'urgent' ? settings.urgent_template_name : settings.template_name;
   const recipient = recipientNumber(details.recipient);
   const consentGranted = Boolean(consent.booking_consent && consent.client_consent);
   const initialStatus: NotificationStatus = !consentGranted ? 'opted_out' :
     settings.mode === 'simulate' ? 'simulated' :
-      settings.mode !== 'meta' || !metaReady(settings) ? 'not_configured' :
+      settings.mode !== 'meta' || !metaReady(settings, templateName) ? 'not_configured' :
         !recipient ? 'failed' : 'pending';
   const notificationId = id();
   db.prepare(`INSERT INTO notification_outbox
-    (id,business_id,appointment_id,recipient,message,status,phone_number_id,error)
-    VALUES(?,?,?,?,?,?,?,?)`).run(notificationId, details.businessId, details.appointmentId,
-      recipient || details.recipient, message, initialStatus, settings.phone_number_id || null,
-      !recipient && consentGranted && settings.mode === 'meta' ? 'Telefone inválido para envio.' : null);
+    (id,business_id,appointment_id,recipient,message,status,phone_number_id,error,kind)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run(notificationId, details.businessId, details.appointmentId,
+      recipient || details.recipient, details.message, initialStatus, settings.phone_number_id || null,
+      !recipient && consentGranted && settings.mode === 'meta' ? 'Telefone inválido para envio.' : null,
+      details.kind);
   if (initialStatus !== 'pending') return initialStatus;
 
   try {
@@ -156,11 +170,9 @@ export async function sendBookingConfirmation(details: Confirmation): Promise<No
       body: JSON.stringify({
         messaging_product: 'whatsapp', to: recipient, type: 'template',
         template: {
-          name: settings.template_name,
+          name: templateName,
           language: { code: 'pt_BR' },
-          components: [{ type: 'body', parameters: [
-            details.clientName, business.name, details.serviceName, weekday, formattedDate, details.time,
-          ].map(text => ({ type: 'text', text })) }],
+          components: [{ type: 'body', parameters: details.parameters.map(text => ({ type: 'text', text })) }],
         },
       }),
       signal: AbortSignal.timeout(8000),
@@ -176,6 +188,78 @@ export async function sendBookingConfirmation(details: Confirmation): Promise<No
       WHERE id=? AND business_id=?`).run(String(error).slice(0, 500), notificationId, details.businessId);
     return 'failed';
   }
+}
+
+function weekday(date: string) {
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' })
+    .format(new Date(`${date}T12:00:00Z`));
+}
+
+function dateLabel(date: string) { return date.split('-').reverse().join('/'); }
+
+function monthLabel(date: string) {
+  return new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${date.slice(0, 7)}-01T12:00:00Z`));
+}
+
+export async function sendBookingConfirmation(details: Confirmation): Promise<NotificationStatus> {
+  const business = db.prepare('SELECT name FROM businesses WHERE id=?').get(details.businessId) as Row | undefined;
+  if (!business) throw new NotificationError(404, 'Espaço não encontrado.');
+  const day = weekday(details.date);
+  const formattedDate = dateLabel(details.date);
+  return dispatchNotification({
+    businessId: details.businessId, appointmentId: details.appointmentId,
+    recipient: details.recipient, kind: 'booking_confirmation', template: 'confirmation',
+    message: `Olá, ${details.clientName}! Seu agendamento com ${business.name} para ${details.serviceName} está confirmado: ${day}, ${formattedDate}, às ${details.time}. Até lá!`,
+    parameters: [details.clientName, business.name, details.serviceName, day, formattedDate, details.time],
+  });
+}
+
+export type BookingChange = Confirmation & {
+  kind: BookingChangeKind;
+  previousServiceName?: string;
+  previousDate?: string;
+  previousTime?: string;
+  reason?: string;
+  availableSlots?: Array<{ date: string; time: string }>;
+};
+
+function cleanText(value: string, max = 220) {
+  return value.replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+export async function sendBookingChangeNotification(details: BookingChange): Promise<NotificationStatus> {
+  const business = db.prepare('SELECT name,slug FROM businesses WHERE id=?').get(details.businessId) as Row | undefined;
+  if (!business) throw new NotificationError(404, 'Espaço não encontrado.');
+  const current = `${details.serviceName}, ${weekday(details.date)}, ${dateLabel(details.date)} às ${details.time}`;
+  const previous = details.previousDate && details.previousTime
+    ? `${details.previousServiceName || details.serviceName}, ${weekday(details.previousDate)}, ${dateLabel(details.previousDate)} às ${details.previousTime}`
+    : current;
+  const reason = details.reason?.trim() ? ` Motivo informado: ${cleanText(details.reason, 100)}.` : '';
+  const summary = details.kind === 'client_rescheduled'
+    ? `Você alterou ${previous} para ${current}.${reason}`
+    : details.kind === 'client_cancelled'
+      ? `Você cancelou ${previous}.${reason}`
+      : details.kind === 'owner_rescheduled'
+        ? `A profissional remarcou ${previous} para ${current}.${reason}`
+        : details.kind === 'owner_reschedule_request'
+          ? `Tivemos um imprevisto e precisamos remarcar ${previous}.${reason}`
+          : `Tivemos um imprevisto e precisamos cancelar ${previous}.${reason}`;
+  const slots = (details.availableSlots || []).slice(0, 8).map(slot =>
+    `${weekday(slot.date)}, ${dateLabel(slot.date)} às ${slot.time}`);
+  const origin = process.env.APP_ORIGIN?.trim().replace(/\/$/, '');
+  const bookingUrl = origin ? `${origin}/agendar/${encodeURIComponent(business.slug)}` : '';
+  const availability = slots.length
+    ? `Algumas opções em ${monthLabel(details.date)}: ${slots.join('; ')}.`
+    : `Sem horários livres em ${monthLabel(details.date)}; responda para combinar outro mês.`;
+  const availabilityWithLink = bookingUrl
+    ? `${availability} Veja todos os horários em ${bookingUrl}` : availability;
+  const message = `⚠️ RESPONDER URGENTE\nOlá, ${details.clientName}! Atualização do seu agendamento com ${business.name}: ${summary}\nDisponibilidade: ${availabilityWithLink}\nResponda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.`;
+  return dispatchNotification({
+    businessId: details.businessId, appointmentId: details.appointmentId,
+    recipient: details.recipient, kind: details.kind, template: 'urgent', message,
+    parameters: [details.clientName, business.name, cleanText(summary, 450), cleanText(availabilityWithLink, 900)],
+  });
 }
 
 export function webhookSettings(webhookKey: string): Row | undefined {

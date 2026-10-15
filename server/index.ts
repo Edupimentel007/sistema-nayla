@@ -8,7 +8,7 @@ import { z, ZodError } from 'zod';
 import { catalog } from './catalog.js';
 import { addMinutes, dateAgo, db, fromCents, id, localNow, toCents, validDate } from './db.js';
 import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
-  updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
+  sendBookingChangeNotification, updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
   webhookSettings, whatsAppConfig } from './notifications.js';
 import { answerAssistant } from './assistant.js';
 
@@ -375,9 +375,18 @@ app.get('/api/appointments', owner, (req, res) => {
   res.json(rows.map(appointmentDto));
 });
 
+app.get('/api/appointments/today', owner, (_req, res) => {
+  const day = localNow().date;
+  const rows = db.prepare(`${appointmentSelect} WHERE a.business_id=? AND a.date=?
+    ORDER BY a.start_time ASC,a.created_at ASC`).all(currentUser(res).business_id, day) as Row[];
+  res.json({ date: day, appointments: rows.map(appointmentDto) });
+});
+
 const appointmentStatus = z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'no_show']);
-app.patch('/api/appointments/:id', owner, (req, res) => {
+app.patch('/api/appointments/:id', owner, async (req, res) => {
   const { status } = z.object({ status: appointmentStatus }).parse(req.body);
+  if (status === 'cancelled')
+    return cancelAppointment(req, res, 'owner', 'owner_cancelled');
   const user = currentUser(res);
   const existing = getAppointment(user.business_id, String(req.params.id));
   if (!existing) throw new ApiError(404, 'Agendamento não encontrado.');
@@ -409,7 +418,8 @@ function publicBusiness(slugValue: string): Row {
   if (!row) throw new ApiError(404, 'Página de agendamento não encontrada.');
   return row;
 }
-function bookingIsAllowed(business: Row, service: Row, day: string, startTime: string) {
+function bookingIsAllowed(business: Row, service: Row, day: string, startTime: string,
+  excludeAppointmentId = '') {
   const now = localNow();
   if (day < now.date || (day === now.date && startTime <= now.time))
     throw new ApiError(400, 'Escolha um horário futuro.');
@@ -424,13 +434,13 @@ function bookingIsAllowed(business: Row, service: Row, day: string, startTime: s
   if (!workdays.includes(weekday) || startTime < business.start_time || !endTime || endTime > business.end_time ||
     (startMinutes - openMinutes) % business.slot_interval !== 0)
     throw new ApiError(409, 'Este horário não está disponível.');
-  const clash = db.prepare(`SELECT 1 FROM appointments WHERE business_id=? AND date=?
+  const clash = db.prepare(`SELECT 1 FROM appointments WHERE business_id=? AND date=? AND id<>?
     AND status IN ('pending','confirmed','completed') AND start_time<? AND end_time>? LIMIT 1`)
-    .get(business.id, day, endTime, startTime);
+    .get(business.id, day, excludeAppointmentId, endTime, startTime);
   if (clash) throw new ApiError(409, 'Este horário acabou de ser reservado. Escolha outro.');
   return endTime;
 }
-function availability(business: Row, service: Row, day: string) {
+function availability(business: Row, service: Row, day: string, excludeAppointmentId = '') {
   const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
   const workdays = JSON.parse(business.workdays) as number[];
   if (!workdays.includes(weekday)) return [];
@@ -438,10 +448,27 @@ function availability(business: Row, service: Row, day: string) {
   for (let slot = business.start_time as string; slot < business.end_time; slot = addMinutes(slot, business.slot_interval) || '24:00') {
     const end = addMinutes(slot, service.duration_minutes);
     if (!end || end > business.end_time) break;
-    try { bookingIsAllowed(business, service, day, slot); slots.push(slot); }
+    try { bookingIsAllowed(business, service, day, slot, excludeAppointmentId); slots.push(slot); }
     catch (error) { if (!(error instanceof ApiError)) throw error; }
   }
   return slots;
+}
+function availableSlotsThisMonth(businessId: string, serviceId: string, monthDate: string,
+  omit?: { date: string; time: string }) {
+  const business = db.prepare('SELECT * FROM businesses WHERE id=?').get(businessId) as Row;
+  const service = db.prepare('SELECT * FROM services WHERE business_id=? AND id=? AND active=1')
+    .get(businessId, serviceId) as Row | undefined;
+  if (!service) return [];
+  const [year, month] = monthDate.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const suggestions: { date: string; time: string }[] = [];
+  for (let day = 1; day <= lastDay && suggestions.length < 8; day++) {
+    const dateValue = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const slot = availability(business, service, dateValue)
+      .find(candidate => omit?.date !== dateValue || omit.time !== candidate);
+    if (slot) suggestions.push({ date: dateValue, time: slot });
+  }
+  return suggestions;
 }
 function serviceForBusiness(businessId: string, serviceId: string) {
   const service = db.prepare('SELECT * FROM services WHERE id=? AND business_id=? AND active=1')
@@ -458,9 +485,16 @@ app.get('/api/public/:slug', (req, res) => {
 });
 app.get('/api/public/:slug/availability', (req, res) => {
   const business = publicBusiness(String(req.params.slug));
-  const input = z.object({ serviceId: z.uuid(), date }).parse(req.query);
+  const input = z.object({ serviceId: z.uuid(), date,
+    excludeAppointmentId: z.uuid().optional() }).parse(req.query);
+  if (input.excludeAppointmentId) {
+    const user = clientForRequest(req, res);
+    const row = getAppointment(business.id, input.excludeAppointmentId);
+    if (!row || row.client_id !== user.id || user.business_id !== business.id)
+      throw new ApiError(403, 'Agendamento nÃ£o pertence a esta cliente.');
+  }
   const service = serviceForBusiness(business.id, input.serviceId);
-  res.json({ slots: availability(business, service, input.date) });
+  res.json({ slots: availability(business, service, input.date, input.excludeAppointmentId) });
 });
 
 const clientDetails = z.object({
@@ -639,20 +673,115 @@ function updateClientPreferences(req: Request, res: Response) {
 app.patch('/api/client/preferences', updateClientPreferences);
 app.patch('/api/public/:slug/preferences', updateClientPreferences);
 
-function cancelClientAppointment(req: Request, res: Response) {
-  const user = clientForRequest(req, res);
-  const row = getAppointment(user.business_id, String(req.params.id));
-  if (!row || row.client_id !== user.id) throw new ApiError(404, 'Agendamento não encontrado.');
-  if (!['pending', 'confirmed'].includes(row.status)) throw new ApiError(409, 'Este agendamento não pode ser cancelado.');
+type ChangeActor = 'client' | 'owner';
+type ChangeKind = 'client_rescheduled' | 'client_cancelled' | 'owner_rescheduled' |
+  'owner_reschedule_request' | 'owner_cancelled';
+const changeReason = z.string().trim().max(500).optional();
+function mutableAppointment(businessId: string, appointmentId: string, clientId?: string) {
+  const row = getAppointment(businessId, appointmentId);
+  if (!row || clientId && row.client_id !== clientId)
+    throw new ApiError(404, 'Agendamento não encontrado.');
+  if (!['pending', 'confirmed'].includes(row.status))
+    throw new ApiError(409, 'Este agendamento não pode ser alterado.');
   const now = localNow();
   if (row.date < now.date || (row.date === now.date && row.start_time <= now.time))
     throw new ApiError(409, 'Este atendimento já começou. Entre em contato com a profissional.');
-  db.prepare(`UPDATE appointments SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND business_id=? AND client_id=?`)
-    .run(row.id, user.business_id, user.id);
-  res.json(appointmentDto(getAppointment(user.business_id, row.id)!));
+  return row;
 }
+const expectedAppointmentInput = z.object({ expectedDate: date.optional(),
+  expectedTime: time.optional(), expectedServiceId: z.uuid().optional() });
+function assertExpectedAppointment(row: Row, input: z.infer<typeof expectedAppointmentInput>) {
+  if (input.expectedDate !== undefined && input.expectedDate !== row.date ||
+    input.expectedTime !== undefined && input.expectedTime !== row.start_time ||
+    input.expectedServiceId !== undefined && input.expectedServiceId !== row.service_id)
+    throw new ApiError(409, 'O agendamento mudou. Atualize a agenda antes de continuar.');
+}
+function recordAppointmentEvent(actor: ChangeActor, kind: ChangeKind, previous: Row,
+  next: Row, reason?: string) {
+  db.prepare(`INSERT INTO appointment_events
+    (id,business_id,appointment_id,actor,kind,reason,previous_service_id,previous_date,previous_time,
+      new_service_id,new_date,new_time) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id(), previous.business_id, previous.id, actor,
+      kind === 'owner_reschedule_request' ? 'reschedule_requested' :
+        kind.endsWith('cancelled') ? 'cancelled' : 'rescheduled',
+      reason || null, previous.service_id, previous.date, previous.start_time,
+      next.status === 'cancelled' ? null : next.service_id,
+      next.status === 'cancelled' ? null : next.date,
+      next.status === 'cancelled' ? null : next.start_time);
+}
+async function notifyAppointmentChange(kind: ChangeKind, previous: Row, next: Row,
+  reason?: string) {
+  const availableSlots = availableSlotsThisMonth(next.business_id, next.service_id, next.date,
+    { date: previous.date, time: previous.start_time });
+  return sendBookingChangeNotification({
+    businessId: next.business_id, appointmentId: next.id, recipient: next.client_phone,
+    clientName: next.client_name, kind, serviceName: next.service_name, date: next.date,
+    time: next.start_time, previousServiceName: previous.service_name,
+    previousDate: previous.date, previousTime: previous.start_time,
+    reason, availableSlots,
+  });
+}
+const rescheduleInput = expectedAppointmentInput.extend({ serviceId: z.uuid().optional(),
+  date: date.optional(), time: time.optional(), reason: changeReason });
+async function rescheduleAppointment(req: Request, res: Response, actor: ChangeActor) {
+  const input = rescheduleInput.parse(req.body);
+  const user = actor === 'client' ? clientForRequest(req, res) : currentUser(res);
+  const businessId = user.business_id;
+  const changed = db.transaction(() => {
+    const before = mutableAppointment(businessId, String(req.params.id),
+      actor === 'client' ? user.id : undefined);
+    if (actor === 'owner') assertExpectedAppointment(before, input);
+    const serviceId = input.serviceId ?? before.service_id;
+    const day = input.date ?? before.date;
+    const startTime = input.time ?? before.start_time;
+    if (serviceId === before.service_id && day === before.date && startTime === before.start_time)
+      throw new ApiError(400, 'Escolha um serviço, dia ou horário diferente.');
+    const business = db.prepare('SELECT * FROM businesses WHERE id=?').get(businessId) as Row;
+    const service = serviceForBusiness(businessId, serviceId);
+    const endTime = bookingIsAllowed(business, service, day, startTime, before.id);
+    db.prepare(`UPDATE appointments SET service_id=?,date=?,start_time=?,end_time=?,price_cents=?,
+      updated_at=CURRENT_TIMESTAMP WHERE id=? AND business_id=?`)
+      .run(service.id, day, startTime, endTime, service.price_cents, before.id, businessId);
+    const after = getAppointment(businessId, before.id)!;
+    recordAppointmentEvent(actor, actor === 'client' ? 'client_rescheduled' : 'owner_rescheduled',
+      before, after, input.reason);
+    return { before, after };
+  }).immediate();
+  const notificationStatus = await notifyAppointmentChange(
+    actor === 'client' ? 'client_rescheduled' : 'owner_rescheduled',
+    changed.before, changed.after, input.reason);
+  res.json({ ...appointmentDto(changed.after), notificationStatus });
+}
+async function cancelAppointment(req: Request, res: Response,
+  actor: ChangeActor, kind: ChangeKind) {
+  const input = expectedAppointmentInput.extend({ reason: changeReason }).parse(req.body ?? {});
+  const { reason } = input;
+  const user = actor === 'client' ? clientForRequest(req, res) : currentUser(res);
+  const changed = db.transaction(() => {
+    const before = mutableAppointment(user.business_id, String(req.params.id),
+      actor === 'client' ? user.id : undefined);
+    if (actor === 'owner') assertExpectedAppointment(before, input);
+    db.prepare(`UPDATE appointments SET status='cancelled',updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND business_id=?`).run(before.id, user.business_id);
+    const after = getAppointment(user.business_id, before.id)!;
+    recordAppointmentEvent(actor, kind, before, after, reason);
+    return { before, after };
+  }).immediate();
+  const notificationStatus = await notifyAppointmentChange(kind, changed.before, changed.after, reason);
+  res.json({ ...appointmentDto(changed.after), notificationStatus });
+}
+async function cancelClientAppointment(req: Request, res: Response) {
+  return cancelAppointment(req, res, 'client', 'client_cancelled');
+}
+app.patch('/api/client/appointments/:id', (req, res) => rescheduleAppointment(req, res, 'client'));
 app.patch('/api/client/appointments/:id/cancel', cancelClientAppointment);
+app.patch('/api/public/:slug/appointments/:id', (req, res) => rescheduleAppointment(req, res, 'client'));
 app.patch('/api/public/:slug/appointments/:id/cancel', cancelClientAppointment);
+app.patch('/api/appointments/:id/reschedule', owner, (req, res) => rescheduleAppointment(req, res, 'owner'));
+app.patch('/api/appointments/:id/reschedule-request', owner,
+  (req, res) => cancelAppointment(req, res, 'owner', 'owner_reschedule_request'));
+app.patch('/api/appointments/:id/cancel-by-owner', owner,
+  (req, res) => cancelAppointment(req, res, 'owner', 'owner_cancelled'));
 
 function periodDates(query: Request['query']) {
   const period = z.coerce.number().refine(value => [7, 30, 60, 90].includes(value))
@@ -774,6 +903,8 @@ app.patch('/api/notifications/config', owner, (req, res) => {
   const input = z.object({
     mode: z.enum(['disabled', 'simulate', 'meta']),
     templateName: z.string().trim().max(100).refine(value => !value || /^[a-z0-9_]+$/.test(value)).default(''),
+    urgentTemplateName: z.string().trim().max(100)
+      .refine(value => !value || /^[a-z0-9_]+$/.test(value)).optional(),
     sender: z.string().trim().max(35).default(''),
     phoneNumberId: z.string().trim().max(40).refine(value => !value || /^\d+$/.test(value)).default(''),
     accessToken: z.string().trim().max(2048).nullable().optional(),
@@ -783,7 +914,7 @@ app.patch('/api/notifications/config', owner, (req, res) => {
 });
 app.get('/api/notifications', owner, (req, res) => {
   const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
-  const rows = db.prepare(`SELECT n.id,n.appointment_id,n.recipient,n.message,n.status,
+  const rows = db.prepare(`SELECT n.id,n.appointment_id,n.kind,n.recipient,n.message,n.status,
     n.provider_message_id,n.error,n.created_at,n.updated_at,
     a.whatsapp_opt_in AS booking_consent,u.whatsapp_opt_in AS client_consent
     FROM notification_outbox n JOIN appointments a ON a.id=n.appointment_id
@@ -791,6 +922,7 @@ app.get('/api/notifications', owner, (req, res) => {
     WHERE n.business_id=? ORDER BY n.created_at DESC,n.id DESC LIMIT ?`)
     .all(currentUser(res).business_id, limit) as Row[];
   res.json(rows.map(row => ({ id: row.id, appointmentId: row.appointment_id,
+    kind: row.kind,
     recipient: row.recipient, message: row.message, status: row.status,
     providerMessageId: row.provider_message_id, error: row.error,
     canContact: Boolean(row.booking_consent && row.client_consent),
@@ -819,10 +951,12 @@ app.post('/api/webhooks/whatsapp/:key', (req, res) => {
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
 const distPath = resolve(process.cwd(), 'dist');
-if (existsSync(resolve(distPath, 'index.html'))) {
-  app.use(express.static(distPath));
-  app.use((_req, res) => res.sendFile(resolve(distPath, 'index.html')));
-}
+app.use(express.static(distPath));
+app.use((_req, res, next) => {
+  const indexPath = resolve(distPath, 'index.html');
+  if (!existsSync(indexPath)) return next();
+  res.sendFile(indexPath);
+});
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof ZodError) return res.status(400).json({ error: 'Dados inválidos.', details: error.issues.map(issue => ({
     field: issue.path.join('.'), message: issue.message,

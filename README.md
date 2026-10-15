@@ -6,11 +6,12 @@ Aplicativo de agenda, CRM e financeiro para profissionais de unhas, sobrancelhas
 
 - Cadastro e login da empreendedora, com serviços iniciais conforme as especialidades escolhidas. Preços e durações são sugestões editáveis.
 - Link público `/agendar/SEU-LINK` com serviços, horários disponíveis e cadastro/login da cliente.
-- Agenda com prevenção de conflito de horários, confirmação, conclusão, cancelamento e ausência.
+- Agenda com prevenção de conflito de horários, confirmação, conclusão, cancelamento e ausência. A cliente pode alterar seu serviço, dia e horário ou cancelar antes do atendimento; a agenda da profissional se atualiza automaticamente.
+- Visão de clientes do dia com serviços, horários e situação de cada atendimento.
 - CRM com dados das clientes e histórico de visitas.
 - Dashboard de 7, 30, 60 e 90 dias, faturamento, ticket médio, agendamentos e clientes recorrentes.
 - Financeiro com entradas automáticas dos atendimentos concluídos e lançamentos manuais de receitas e despesas.
-- Assistente Nayla para consultas aos dados da própria empreendedora, com respostas adicionais por IA quando configurada.
+- Assistente Nayla para consultas aos dados da própria empreendedora e pedidos guiados de remarcação ou cancelamento, com revisão e confirmação pela profissional antes da alteração.
 - Confirmações de agendamento com prévia local, histórico de status e integração opcional à WhatsApp Cloud API da Meta.
 - Interface em português, responsiva, com temas claro e escuro.
 
@@ -76,6 +77,17 @@ Cada empreendedora preenche seu próprio número no painel. Para que as mensagen
 ```text
 Olá, {{1}}! Seu agendamento com {{2}} para {{3}} está confirmado: {{4}}, {{5}}, às {{6}}. Até lá!
 ```
+
+Para alterações e cancelamentos, cadastre também um **segundo modelo aprovado em `pt_BR`**, com quatro parâmetros: cliente, espaço, resumo da alteração e algumas opções de horário com link para a agenda pública quando `APP_ORIGIN` estiver configurado. O sistema identifica o mês e ano das opções. Texto sugerido:
+
+```text
+⚠️ RESPONDER URGENTE
+Olá, {{1}}! Atualização do seu agendamento com {{2}}: {{3}}
+Disponibilidade: {{4}}
+Responda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.
+```
+
+Os dois nomes de modelo são configurados por empreendedora em **Configurações**. Confirme no painel da Meta que cada modelo foi aprovado e que seu texto corresponde ao exemplo: a Nayla registra uma prévia local, enquanto o envio real usa o corpo do modelo aprovado na Meta. Alterações da cliente e pedidos da profissional registram um aviso no histórico mesmo se o envio estiver desativado ou sem credenciais. Uma etiqueta nativa de conversa do WhatsApp Business não é aplicada por essa API; **RESPONDER URGENTE** aparece na prévia e no histórico da Nayla. As respostas das clientes devem ser acompanhadas na conta WhatsApp conectada; a Nayla ainda não recebe respostas pelo webhook nem remarca sozinha a partir delas.
 
 A cliente escolhe receber mensagens pelo WhatsApp no formulário de agendamento. O sistema registra essa escolha e só tenta enviar para quem autorizou. O histórico diferencia uma mensagem **aceita pela Meta** de uma mensagem **enviada, entregue ou lida**; os últimos estados dependem do webhook da Meta. Cada empreendedora recebe no painel a URL e o token de verificação do seu webhook para cadastrar no aplicativo Meta dela. A URL precisa ser pública e HTTPS; `localhost` não é alcançável pela Meta. Em produção, sem configuração do negócio, as mensagens ficam desativadas.
 

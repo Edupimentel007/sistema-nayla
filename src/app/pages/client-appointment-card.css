@@ -1,0 +1,25 @@
+.client-appointment-entry{display:grid;gap:0}
+.client-appointment-entry>.client-appointment-card{position:relative}
+.client-appointment-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.client-appointment-actions button{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.client-appointment-actions .client-appointment-edit-trigger{color:var(--pink)}
+.client-appointment-actions button:disabled{opacity:.55;cursor:not-allowed}
+.client-appointment-editor{background:var(--surface);border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;padding:20px 24px;display:grid;gap:17px}
+.client-appointment-entry:has(.client-appointment-editor)>.client-appointment-card{border-radius:12px 12px 0 0}
+.client-appointment-form-heading h3{font-size:15px;margin:0 0 5px}
+.client-appointment-form-heading p,.client-appointment-help{font-size:11px;color:var(--muted);margin:0;line-height:1.5}
+.client-appointment-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,210px);gap:14px}
+.client-appointment-fields label,.client-appointment-reason{display:grid;gap:7px;color:var(--ink);font-size:11px;font-weight:800}
+.client-appointment-fields select,.client-appointment-fields input,.client-appointment-reason textarea{min-width:0;width:100%;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:10px 12px;font-family:inherit;font-size:12px;font-weight:600}
+.client-appointment-reason textarea{font-family:inherit;font-weight:500;resize:vertical}
+.client-appointment-slot-heading{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink)}
+.client-appointment-slot-heading svg{color:var(--pink)}
+.client-appointment-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px}
+.client-appointment-slots button{min-height:40px;border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:8px;padding:9px;font-size:11px;font-weight:800;cursor:pointer}
+.client-appointment-slots button:hover,.client-appointment-slots button.selected{background:var(--pink);border-color:var(--pink);color:#fff}
+.client-appointment-inline-error{font-size:11px;color:#bd5262;line-height:1.5}
+.client-appointment-inline-error button{border:0;background:none;color:var(--pink);font-size:inherit;font-weight:800;text-decoration:underline;cursor:pointer}
+.client-appointment-form-actions{display:flex;justify-content:flex-end;gap:9px;flex-wrap:wrap}
+.client-appointment-notice{display:flex;align-items:flex-start;gap:8px;background:var(--surface);border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;padding:13px 18px;color:var(--ink);font-size:11px;line-height:1.5;margin:0}
+.client-appointment-notice svg{color:#36a376;flex:none}
+@media(max-width:650px){.client-appointment-fields{grid-template-columns:1fr}.client-appointment-editor{padding:17px 14px}.client-appointment-form-actions .btn{flex:1}.client-appointment-actions{justify-content:flex-start}}

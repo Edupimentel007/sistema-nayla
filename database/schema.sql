@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS business_whatsapp_settings (
   phone_number_id TEXT,
   sender TEXT,
   template_name TEXT,
+  urgent_template_name TEXT,
   access_token_encrypted TEXT,
   app_secret_encrypted TEXT,
   webhook_key TEXT NOT NULL UNIQUE,
@@ -89,6 +90,24 @@ CREATE TABLE IF NOT EXISTS appointments (
 CREATE INDEX IF NOT EXISTS appointments_schedule ON appointments(business_id,date,start_time,status);
 CREATE INDEX IF NOT EXISTS appointments_client ON appointments(client_id,date);
 
+CREATE TABLE IF NOT EXISTS appointment_events (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  appointment_id TEXT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+  actor TEXT NOT NULL CHECK (actor IN ('client','owner')),
+  kind TEXT NOT NULL CHECK (kind IN ('rescheduled','cancelled','reschedule_requested')),
+  reason TEXT,
+  previous_service_id TEXT,
+  previous_date TEXT NOT NULL,
+  previous_time TEXT NOT NULL,
+  new_service_id TEXT,
+  new_date TEXT,
+  new_time TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS appointment_events_business_date ON appointment_events(business_id,created_at);
+CREATE INDEX IF NOT EXISTS appointment_events_appointment ON appointment_events(appointment_id,created_at);
+
 CREATE TABLE IF NOT EXISTS financial_entries (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -107,6 +126,7 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   appointment_id TEXT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
   channel TEXT NOT NULL DEFAULT 'whatsapp',
+  kind TEXT NOT NULL DEFAULT 'booking_confirmation',
   recipient TEXT NOT NULL,
   message TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending','accepted','sent','delivered','read','failed','not_configured','simulated','opted_out')),

@@ -1,0 +1,24 @@
+.notification-row.urgent {
+  border-left: 3px solid #dc6f6f;
+  padding-left: 12px;
+  margin-left: -15px;
+}
+
+.notification-row.urgent .notification-row-top {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.urgent-message-badge {
+  color: #a74255;
+  background: var(--pink-softer);
+  border: 1px solid var(--pink);
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.notification-row.urgent .notification-status {
+  margin-left: auto;
+}

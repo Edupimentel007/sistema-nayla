@@ -65,6 +65,8 @@ export type Appointment = {
   notificationStatus?: NotificationStatus
 }
 
+export type OwnerActionExpectation = { expectedDate: string; expectedTime: string; expectedServiceId: string }
+
 export type Dashboard = {
   revenue: number
   ticketAverage: number
@@ -84,7 +86,9 @@ export type NotificationStatus = 'pending' | 'opted_out' | 'simulated' | 'not_co
 export type WhatsAppConfig = {
   mode: 'simulate' | 'meta' | 'disabled'
   configured: boolean
+  urgentConfigured: boolean
   templateName: string | null
+  urgentTemplateName: string | null
   sender: string | null
   phoneNumberId: string | null
   hasAccessToken: boolean
@@ -96,6 +100,7 @@ export type WhatsAppConfig = {
 export type WhatsAppConfigUpdate = {
   mode: WhatsAppConfig['mode']
   templateName: string
+  urgentTemplateName: string
   sender: string
   phoneNumberId: string
   accessToken?: string
@@ -177,9 +182,14 @@ export const api = {
     await clearNativeSession('owner')
   },
   dashboard: (period: number) => request<Dashboard>(`/api/dashboard?period=${period}`),
+  appointmentsToday: () => request<{ date: string; appointments: Appointment[] }>('/api/appointments/today'),
   appointments: (from: string, to: string) => request<Appointment[]>(`/api/appointments?${query({ from, to })}`),
   updateAppointment: (id: string, status: AppointmentStatus) =>
     request<Appointment>(`/api/appointments/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status }) }),
+  requestOwnerReschedule: (id: string, expected: OwnerActionExpectation, reason?: string) =>
+    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/appointments/${encodeURIComponent(id)}/reschedule-request`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
+  cancelOwnerAppointment: (id: string, expected: OwnerActionExpectation, reason?: string) =>
+    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/appointments/${encodeURIComponent(id)}/cancel-by-owner`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
   createAppointment: (data: { clientId: string; serviceId: string; date: string; time: string; notes?: string; whatsappOptIn?: boolean }) =>
     request<Appointment>('/api/appointments', { method: 'POST', body: json(data) }),
   clients: () => request<Client[]>('/api/clients'),
@@ -213,11 +223,15 @@ export const api = {
   updateClientPreferences: (slug: string, whatsappOptIn: boolean) =>
     request<ClientSession>(`/api/public/${encodeURIComponent(slug)}/preferences`, { method: 'PATCH', body: json({ whatsappOptIn }) }),
   clientAppointments: (slug: string) => request<Appointment[]>(`/api/public/${encodeURIComponent(slug)}/appointments`),
+  clientAvailability: (slug: string, serviceId: string, date: string, excludeAppointmentId: string) =>
+    request<{ slots: string[] }>(`/api/public/${encodeURIComponent(slug)}/availability?${query({ serviceId, date, excludeAppointmentId })}`),
+  updateClientAppointment: (id: string, data: { serviceId: string; date: string; time: string }) =>
+    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/client/appointments/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(data) }),
   clientLogout: (slug: string) => logoutSession('client', `/api/public/${encodeURIComponent(slug)}/logout`),
   deleteClientAccount: async (password: string) => {
     await request<void>('/api/client/account', { method: 'DELETE', body: JSON.stringify({ password }) })
     await clearNativeSession('client')
   },
-  cancelClientAppointment: (_slug: string, id: string) =>
-    request<Appointment>(`/api/client/appointments/${encodeURIComponent(id)}/cancel`, { method: 'PATCH' }),
+  cancelClientAppointment: (_slug: string, id: string, reason?: string) =>
+    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/client/appointments/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: json({ reason: reason?.trim() || undefined }) }),
 }

@@ -279,11 +279,14 @@ describe('Nayla API', () => {
     expect(inactive.body.answer).toContain('Não há clientes');
 
     const metaConfig = await request('/api/notifications/config', { method: 'PATCH', body: JSON.stringify({
-      mode: 'meta', templateName: 'confirmacao_agendamento', sender: '5511999998888',
+      mode: 'meta', templateName: 'confirmacao_agendamento', urgentTemplateName: 'aviso_urgente',
+      sender: '5511999998888',
       phoneNumberId: '123456789', accessToken: 'token-only-ana', appSecret: 'secret-only-ana',
     }) }, ownerCookie);
     expect(metaConfig.status).toBe(200);
     expect(metaConfig.body.configured).toBe(true);
+    expect(metaConfig.body.urgentConfigured).toBe(true);
+    expect(metaConfig.body.urgentTemplateName).toBe('aviso_urgente');
     expect(metaConfig.body.senderVerified).toBe(false);
     expect(metaConfig.body.hasAccessToken).toBe(true);
     expect(metaConfig.body.hasAppSecret).toBe(true);
@@ -442,4 +445,191 @@ describe('Nayla API', () => {
     } finally { expireDb.close(); }
     expect((await request('/api/auth/me', { headers: newOwnerBearer })).status).toBe(401);
   });
+
+  it('lets clients change their own booking and keeps the owner schedule, audit and notices in sync',
+    { timeout: 40_000 }, async () => {
+      const ownerRegistration = await request('/api/auth/register', { method: 'POST',
+        body: JSON.stringify({ ownerName: 'Lia Moura', businessName: 'Espaço Lia',
+          slug: 'espaco-lia-remarcacao', email: 'lia@example.test',
+          password: 'SenhaMuitoForte3', specialties: ['unhas'] }) });
+      expect(ownerRegistration.status).toBe(201);
+      const ownerCookie = ownerRegistration.cookie!;
+      const ownerId = ownerRegistration.body.business.id as string;
+      const catalog = await request('/api/public/espaco-lia-remarcacao');
+      const [firstService, secondService] = catalog.body.services as Array<{ id: string }>;
+      const day = bookingDay();
+      const firstSlots = (await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${firstService.id}&date=${day}`)).body.slots as string[];
+      assert.ok(firstSlots.length > 8);
+      const firstTime = firstSlots[0];
+      const secondTime = firstSlots[8];
+      const book = (cpf: string, phone: string, name: string, time: string) =>
+        request('/api/public/espaco-lia-remarcacao/bookings', { method: 'POST',
+          body: JSON.stringify({ serviceId: firstService.id, date: day, time, client: {
+            name, cpf, phone, password: 'SenhaCliente123', whatsappOptIn: true,
+          } }) });
+      const first = await book('52998224725', '11988881111', 'Nina Costa', firstTime);
+      const second = await book('11144477735', '11988882222', 'Bia Gomes', secondTime);
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      const firstId = first.body.appointment.id as string;
+      const secondId = second.body.appointment.id as string;
+      const firstCookie = first.cookie!;
+      const secondCookie = second.cookie!;
+      const foreignChange = await request(`/api/client/appointments/${secondId}`, {
+        method: 'PATCH', body: JSON.stringify({ time: firstTime }),
+      }, firstCookie);
+      expect(foreignChange.status).toBe(404);
+      const otherExcluded = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${firstService.id}&date=${day}&excludeAppointmentId=${secondId}`,
+        {}, firstCookie);
+      expect(otherExcluded.status).toBe(403);
+      const ownExcluded = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${firstService.id}&date=${day}&excludeAppointmentId=${firstId}`,
+        {}, firstCookie);
+      expect(ownExcluded.body.slots).toContain(firstTime);
+      const sameBooking = await request(`/api/client/appointments/${firstId}`, {
+        method: 'PATCH', body: JSON.stringify({ date: day, time: firstTime, serviceId: firstService.id }),
+      }, firstCookie);
+      expect(sameBooking.status).toBe(400);
+      const conflict = await request(`/api/client/appointments/${firstId}`, {
+        method: 'PATCH', body: JSON.stringify({ time: secondTime }),
+      }, firstCookie);
+      expect(conflict.status).toBe(409);
+
+      const nextMonthStart = new Date(`${day.slice(0, 7)}-01T12:00:00Z`);
+      nextMonthStart.setUTCMonth(nextMonthStart.getUTCMonth() + 1);
+      let newDay = '';
+      let newTime = '';
+      for (let offset = 0; offset < 7 && !newDay; offset++) {
+        const nextDate = new Date(nextMonthStart);
+        nextDate.setUTCDate(nextDate.getUTCDate() + offset);
+        const candidate = nextDate.toISOString().slice(0, 10);
+        const slots = (await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${secondService.id}&date=${candidate}`)).body.slots as string[];
+        if (slots.length) { newDay = candidate; newTime = slots[0]; }
+      }
+      assert.ok(newDay && newTime);
+      const changed = await request(`/api/public/espaco-lia-remarcacao/appointments/${firstId}`, {
+        method: 'PATCH', body: JSON.stringify({ serviceId: secondService.id, date: newDay,
+          time: newTime, reason: 'Prefiro outro dia' }),
+      }, firstCookie);
+      expect(changed.status).toBe(200);
+      expect(changed.body.date).toBe(newDay);
+      expect(changed.body.serviceId).toBe(secondService.id);
+      expect(changed.body.notificationStatus).toBe('simulated');
+      const oldAvailability = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${firstService.id}&date=${day}`);
+      expect(oldAvailability.body.slots).toContain(firstTime);
+      const newAvailability = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${secondService.id}&date=${newDay}`);
+      assert.equal(newAvailability.body.slots.includes(newTime), false);
+      const ownerSchedule = await request(`/api/appointments?from=${day}&to=${newDay}`, {}, ownerCookie);
+      expect(ownerSchedule.body.find((item: any) => item.id === firstId).date).toBe(newDay);
+      const clientSchedule = await request('/api/client/appointments', {}, firstCookie);
+      expect(clientSchedule.body.find((item: any) => item.id === firstId).time).toBe(newTime);
+
+      const staleOwnerRequest = await request(`/api/appointments/${firstId}/reschedule-request`, {
+        method: 'PATCH', body: JSON.stringify({ expectedDate: day, expectedTime: firstTime,
+          expectedServiceId: firstService.id }),
+      }, ownerCookie);
+      expect(staleOwnerRequest.status).toBe(409);
+      const ownerRequest = await request(`/api/appointments/${firstId}/reschedule-request`, {
+        method: 'PATCH', body: JSON.stringify({ expectedDate: newDay, expectedTime: newTime,
+          expectedServiceId: secondService.id, reason: 'Compromisso inesperado' }),
+      }, ownerCookie);
+      expect(ownerRequest.status).toBe(200);
+      expect(ownerRequest.body.status).toBe('cancelled');
+      expect(ownerRequest.body.notificationStatus).toBe('simulated');
+      const reopened = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${secondService.id}&date=${newDay}`);
+      expect(reopened.body.slots).toContain(newTime);
+      expect((await request(`/api/client/appointments/${firstId}/cancel`, { method: 'PATCH' }, firstCookie)).status).toBe(409);
+      const ownerCancel = await request(`/api/appointments/${secondId}/cancel-by-owner`, {
+        method: 'PATCH', body: JSON.stringify({ expectedDate: day, expectedTime: secondTime,
+          expectedServiceId: firstService.id }),
+      }, ownerCookie);
+      expect(ownerCancel.status).toBe(200);
+      expect(ownerCancel.body.status).toBe('cancelled');
+      expect(ownerCancel.body.notificationStatus).toBe('simulated');
+      expect((await request(`/api/client/appointments/${secondId}`, { method: 'PATCH',
+        body: JSON.stringify({ time: firstTime }) }, secondCookie)).status).toBe(409);
+      const extraBooking = await book('52998224725', '11988881111', 'Nina Costa', firstTime);
+      expect(extraBooking.status).toBe(201);
+      const genericCancel = await request(`/api/appointments/${extraBooking.body.appointment.id}`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'cancelled', reason: 'Imprevisto na agenda' }),
+      }, ownerCookie);
+      expect(genericCancel.status).toBe(200);
+      expect(genericCancel.body.status).toBe('cancelled');
+      expect(genericCancel.body.notificationStatus).toBe('simulated');
+      const clientCancelBooking = await book('52998224725', '11988881111', 'Nina Costa', firstTime);
+      expect(clientCancelBooking.status).toBe(201);
+      const clientCancelled = await request(`/api/client/appointments/${clientCancelBooking.body.appointment.id}/cancel`, {
+        method: 'PATCH', body: JSON.stringify({ reason: 'Não poderei comparecer' }),
+      }, clientCancelBooking.cookie);
+      expect(clientCancelled.status).toBe(200);
+      expect(clientCancelled.body.status).toBe('cancelled');
+      expect(clientCancelled.body.notificationStatus).toBe('simulated');
+
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo',
+        year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const fixtureId = randomUUID();
+      const auditDb = new Database(join(tempDirectory, 'nayla.sqlite'));
+      try {
+        auditDb.prepare(`INSERT INTO appointments
+          (id,business_id,client_id,service_id,date,start_time,end_time,price_cents)
+          VALUES(?,?,?,?,?,'09:00','10:00',5000)`).run(fixtureId, ownerId,
+            first.body.appointment.clientId, firstService.id, today);
+        const events = auditDb.prepare(`SELECT actor,kind,reason,previous_date,new_date
+          FROM appointment_events WHERE business_id=? ORDER BY created_at,id`).all(ownerId) as Array<{
+            actor: string; kind: string; reason: string | null; previous_date: string; new_date: string | null;
+          }>;
+        expect(events).toHaveLength(5);
+        expect(events.some(event => event.actor === 'client' && event.kind === 'rescheduled' &&
+          event.reason === 'Prefiro outro dia' && event.new_date === newDay)).toBe(true);
+        expect(events.some(event => event.actor === 'owner' && event.kind === 'reschedule_requested' &&
+          event.reason === 'Compromisso inesperado')).toBe(true);
+        expect(events.some(event => event.actor === 'owner' && event.kind === 'cancelled')).toBe(true);
+        expect(events.some(event => event.actor === 'client' && event.kind === 'cancelled' &&
+          event.reason === 'Não poderei comparecer')).toBe(true);
+      } finally { auditDb.close(); }
+      const todayResponse = await request('/api/appointments/today', {}, ownerCookie);
+      expect(todayResponse.status).toBe(200);
+      expect(todayResponse.body.date).toBe(today);
+      expect(todayResponse.body.appointments.find((item: any) => item.id === fixtureId).clientName).toBe('Nina Costa');
+      const todayAssistant = await request('/api/assistant', { method: 'POST',
+        body: JSON.stringify({ message: 'Quais atendimentos tenho hoje?' }) }, ownerCookie);
+      expect(todayAssistant.status).toBe(200);
+      expect(todayAssistant.body.answer).toContain('Nina Costa');
+      expect(todayAssistant.body.answer).toContain('09:00');
+      expect(todayAssistant.body.answer).toContain(todayResponse.body.appointments[0].serviceName);
+      const historyAssistant = await request('/api/assistant', { method: 'POST',
+        body: JSON.stringify({ message: 'Quais clientes remarcaram?' }) }, ownerCookie);
+      expect(historyAssistant.status).toBe(200);
+      expect(historyAssistant.body.answer).toContain('Nina Costa');
+      expect(historyAssistant.body.answer).toContain('Remarcações feitas por clientes');
+      const notices = await request('/api/notifications', {}, ownerCookie);
+      expect(notices.body.filter((item: any) => item.kind !== 'booking_confirmation')).toHaveLength(5);
+      expect(notices.body.some((item: any) => item.kind === 'owner_reschedule_request')).toBe(true);
+      expect(notices.body.some((item: any) => item.kind === 'owner_cancelled')).toBe(true);
+      expect(notices.body.some((item: any) => item.kind === 'client_cancelled' && item.status === 'simulated')).toBe(true);
+      const urgentNotice = notices.body.find((item: any) => item.kind === 'owner_reschedule_request');
+      expect(urgentNotice.status).toBe('simulated');
+      assert.ok(urgentNotice.message.startsWith('⚠️ RESPONDER URGENTE'));
+      expect(urgentNotice.message).toContain('Disponibilidade: Algumas opções em');
+      assert.equal(urgentNotice.message.includes('Sem horários livres neste mês'), false);
+      assert.match(urgentNotice.message, /\d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/);
+      const otherRegistration = await request('/api/auth/register', { method: 'POST',
+        body: JSON.stringify({ ownerName: 'Sol Souza', businessName: 'Estúdio Sol',
+          slug: 'studio-sol-isolado', email: 'sol@example.test',
+          password: 'SenhaMuitoForte4', specialties: ['cilios'] }) });
+      expect(otherRegistration.status).toBe(201);
+      expect((await request('/api/appointments/today', {}, otherRegistration.cookie)).body.appointments).toHaveLength(0);
+      expect((await request('/api/appointments', {}, otherRegistration.cookie)).body).toHaveLength(0);
+      expect((await request('/api/notifications', {}, otherRegistration.cookie)).body).toHaveLength(0);
+      expect((await request(`/api/appointments/${firstId}/cancel-by-owner`, { method: 'PATCH' },
+        otherRegistration.cookie)).status).toBe(404);
+      const deletedOwner = await request('/api/auth/account', { method: 'DELETE',
+        body: JSON.stringify({ password: 'SenhaMuitoForte3' }) }, ownerCookie);
+      expect(deletedOwner.status).toBe(204);
+      const cleanupDb = new Database(join(tempDirectory, 'nayla.sqlite'), { readonly: true });
+      try {
+        expect((cleanupDb.prepare('SELECT COUNT(*) AS total FROM appointment_events WHERE business_id=?')
+          .get(ownerId) as { total: number }).total).toBe(0);
+        expect((cleanupDb.pragma('foreign_key_check') as unknown[]).length).toBe(0);
+      } finally { cleanupDb.close(); }
+    });
 });

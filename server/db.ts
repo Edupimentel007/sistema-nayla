@@ -26,7 +26,9 @@ for (const [table, column, definition] of [
   ['appointments', 'notes', "TEXT NOT NULL DEFAULT ''"],
   ['appointments', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
   ['notification_outbox', 'phone_number_id', 'TEXT'],
+  ['notification_outbox', 'kind', "TEXT NOT NULL DEFAULT 'booking_confirmation'"],
   ['business_whatsapp_settings', 'app_secret_encrypted', 'TEXT'],
+  ['business_whatsapp_settings', 'urgent_template_name', 'TEXT'],
   ['business_whatsapp_settings', 'webhook_key', 'TEXT'],
   ['business_whatsapp_settings', 'webhook_verify_token', 'TEXT'],
 ] as const) {
@@ -49,6 +51,7 @@ if (outboxSchema && !outboxSchema.sql.includes("'opted_out'")) {
       business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
       appointment_id TEXT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
       channel TEXT NOT NULL DEFAULT 'whatsapp',
+      kind TEXT NOT NULL DEFAULT 'booking_confirmation',
       recipient TEXT NOT NULL,
       message TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('pending','accepted','sent','delivered','read','failed','not_configured','simulated','opted_out')),
@@ -59,8 +62,8 @@ if (outboxSchema && !outboxSchema.sql.includes("'opted_out'")) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO notification_outbox_new
-      (id,business_id,appointment_id,channel,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at)
-      SELECT id,business_id,appointment_id,channel,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at
+      (id,business_id,appointment_id,channel,kind,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at)
+      SELECT id,business_id,appointment_id,channel,kind,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at
       FROM notification_outbox;
     DROP TABLE notification_outbox;
     ALTER TABLE notification_outbox_new RENAME TO notification_outbox;
