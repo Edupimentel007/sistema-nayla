@@ -7,7 +7,9 @@ import { resolve } from 'node:path';
 import { z, ZodError } from 'zod';
 import { catalog } from './catalog.js';
 import { addMinutes, dateAgo, db, fromCents, id, localNow, toCents, validDate } from './db.js';
-import { sendBookingConfirmation } from './notifications.js';
+import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
+  updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
+  webhookSettings, whatsAppConfig } from './notifications.js';
 import { answerAssistant } from './assistant.js';
 
 type Row = Record<string, any>;
@@ -15,20 +17,35 @@ type User = Row & { id: string; business_id: string; role: 'owner' | 'client' };
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '1');
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '32kb', verify: (req, _res, body) => {
+  (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(body);
+} }));
 app.use(cookieParser());
 
-const allowedOrigin = process.env.APP_ORIGIN;
+const nativeOrigins = new Set(['capacitor://localhost', 'https://localhost']);
+const configuredWebOrigin = process.env.APP_ORIGIN?.replace(/\/$/, '');
+function nativeRequest(req: Request) {
+  return req.get('x-nayla-app') === 'mobile' && nativeOrigins.has(req.get('origin') || '');
+}
 app.use((req, res, next) => {
   const origin = req.get('origin');
-  if (!origin || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  try {
-    const source = new URL(origin);
-    const host = req.get('host');
-    if (source.host === host || origin === allowedOrigin ||
-      (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(source.hostname))) return next();
-  } catch { /* invalid origin */ }
-  res.status(403).json({ error: 'Origem não permitida.' });
+  const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
+  const allowed = Boolean(origin && (nativeOrigins.has(origin) || origin === configuredWebOrigin || sameOrigin));
+  if (allowed) {
+    res.vary('Origin');
+    res.setHeader('Access-Control-Allow-Origin', origin!);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  if (req.method === 'OPTIONS') {
+    if (!allowed) return res.status(403).end();
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Nayla-App');
+    res.setHeader('Access-Control-Max-Age', '600');
+    return res.status(204).end();
+  }
+  if (origin && !allowed && !['GET', 'HEAD'].includes(req.method))
+    return res.status(403).json({ error: 'Origem não permitida.' });
+  next();
 });
 
 class ApiError extends Error {
@@ -54,22 +71,36 @@ setInterval(() => {
 }, 60_000).unref();
 
 function cookieName(role: 'owner' | 'client') { return role === 'owner' ? 'nayla_owner_session' : 'nayla_client_session'; }
-function createSession(res: Response, user: User) {
+function createSession(req: Request, res: Response, user: User) {
   const token = randomBytes(32).toString('hex');
   const hash = createHash('sha256').update(token).digest('hex');
   db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)')
     .run(hash, user.id, Date.now() + 30 * 24 * 60 * 60_000);
-  res.cookie(cookieName(user.role), token, {
-    httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production',
-    maxAge: 30 * 24 * 60 * 60_000, path: '/',
-  });
+  if (!nativeRequest(req)) {
+    res.cookie(cookieName(user.role), token, {
+      httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 24 * 60 * 60_000, path: '/',
+    });
+  }
+  return nativeRequest(req) ? { sessionToken: token } : {};
 }
 function getSessionUser(req: Request, role: 'owner' | 'client'): User | undefined {
-  const token = req.cookies?.[cookieName(role)];
+  const authorization = req.get('authorization');
+  const token = authorization ? /^Bearer ([a-f0-9]{64})$/.exec(authorization)?.[1] :
+    req.cookies?.[cookieName(role)];
   if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
   return db.prepare(`SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token_hash=? AND s.expires_at>? AND u.role=?`)
     .get(createHash('sha256').update(token).digest('hex'), Date.now(), role) as User | undefined;
+}
+function revokeSession(req: Request, role: 'owner' | 'client') {
+  const authorization = req.get('authorization');
+  const token = authorization ? /^Bearer ([a-f0-9]{64})$/.exec(authorization)?.[1] :
+    req.cookies?.[cookieName(role)];
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
+  db.prepare(`DELETE FROM sessions WHERE token_hash=? AND user_id IN
+    (SELECT id FROM users WHERE role=?)`)
+    .run(createHash('sha256').update(token).digest('hex'), role);
 }
 function requireRole(role: 'owner' | 'client') {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -95,7 +126,8 @@ function businessDto(row: Row) {
 }
 function userDto(row: Row) {
   return { id: row.id, name: row.name, email: row.email || '', phone: row.phone || '',
-    cpf: row.cpf || '', role: row.role, businessId: row.business_id };
+    cpf: row.cpf || '', whatsappOptIn: Boolean(row.whatsapp_opt_in),
+    role: row.role, businessId: row.business_id };
 }
 function serviceDto(row: Row) {
   return { id: row.id, name: row.name, description: row.description,
@@ -110,6 +142,7 @@ function appointmentDto(row: Row) {
     startsAt: `${row.date}T${row.start_time}:00-03:00`,
     endsAt: `${row.date}T${row.end_time}:00-03:00`,
     status: row.status, price: fromCents(row.price_cents), notes: row.notes || '',
+    whatsappOptIn: Boolean(row.whatsapp_opt_in),
     createdAt: row.created_at,
   };
 }
@@ -160,8 +193,8 @@ app.post('/api/auth/register', rateLimit(10), async (req, res) => {
       addService.run(id(), businessId, item.name, item.category, item.durationMinutes, toCents(item.price));
   })();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as User;
-  createSession(res, user);
-  res.status(201).json({ user: userDto(user), business: businessById(businessId) });
+  const session = createSession(req, res, user);
+  res.status(201).json({ user: userDto(user), business: businessById(businessId), ...session });
 });
 
 app.post('/api/auth/login', rateLimit(15), async (req, res) => {
@@ -169,17 +202,32 @@ app.post('/api/auth/login', rateLimit(15), async (req, res) => {
   const address = (input.email || input.identifier || '').trim().toLowerCase();
   const user = db.prepare(`SELECT * FROM users WHERE role='owner' AND email=?`).get(address) as User | undefined;
   if (!user || !await bcrypt.compare(input.password, user.password_hash)) throw new ApiError(401, 'E-mail ou senha inválidos.');
-  createSession(res, user);
-  res.json({ user: userDto(user), business: businessById(user.business_id) });
+  const session = createSession(req, res, user);
+  res.json({ user: userDto(user), business: businessById(user.business_id), ...session });
 });
 app.get('/api/auth/me', owner, (_req, res) => {
   const user = currentUser(res);
   res.json({ user: userDto(user), business: businessById(user.business_id) });
 });
 app.post('/api/auth/logout', (req, res) => {
-  const token = req.cookies?.[cookieName('owner')];
-  if (token) db.prepare('DELETE FROM sessions WHERE token_hash=?')
-    .run(createHash('sha256').update(token).digest('hex'));
+  revokeSession(req, 'owner');
+  res.clearCookie(cookieName('owner'), { path: '/' });
+  res.status(204).end();
+});
+app.delete('/api/auth/account', owner, rateLimit(10), async (req, res) => {
+  const { password: suppliedPassword } = z.object({ password: z.string().min(1).max(100) }).parse(req.body);
+  const user = currentUser(res);
+  if (!await bcrypt.compare(suppliedPassword, user.password_hash))
+    throw new ApiError(401, 'Senha incorreta.');
+  db.transaction(() => {
+    if (getSessionUser(req, 'owner')?.id !== user.id)
+      throw new ApiError(401, 'Sessão expirada. Faça login novamente.');
+    const businessId = user.business_id;
+    db.prepare('DELETE FROM notification_outbox WHERE business_id=?').run(businessId);
+    db.prepare('DELETE FROM financial_entries WHERE business_id=?').run(businessId);
+    db.prepare('DELETE FROM appointments WHERE business_id=?').run(businessId);
+    db.prepare('DELETE FROM businesses WHERE id=?').run(businessId);
+  }).immediate();
   res.clearCookie(cookieName('owner'), { path: '/' });
   res.status(204).end();
 });
@@ -249,7 +297,7 @@ app.delete('/api/services/:id', owner, (req, res) => {
 
 app.get('/api/clients', owner, (req, res) => {
   const search = String(req.query.search || '').trim();
-  const rows = db.prepare(`SELECT u.id,u.name,u.email,u.phone,u.cpf,u.notes,u.tags,u.created_at,
+  const rows = db.prepare(`SELECT u.id,u.name,u.email,u.phone,u.cpf,u.notes,u.tags,u.whatsapp_opt_in,u.created_at,
     COUNT(CASE WHEN a.status='completed' THEN 1 END) AS visits,
     COALESCE(SUM(CASE WHEN a.status='completed' THEN a.price_cents ELSE 0 END),0) AS spent_cents,
     MAX(CASE WHEN a.status='completed' THEN a.date END) AS last_visit
@@ -258,7 +306,8 @@ app.get('/api/clients', owner, (req, res) => {
     GROUP BY u.id ORDER BY u.name`)
     .all(currentUser(res).business_id, `%${search}%`, `%${search}%`, `%${search}%`) as Row[];
   res.json(rows.map(row => ({ id: row.id, name: row.name, email: row.email || '',
-    phone: row.phone || '', cpf: row.cpf || '', notes: row.notes || '', tags: JSON.parse(row.tags || '[]'), visits: row.visits,
+    phone: row.phone || '', cpf: row.cpf || '', whatsappOptIn: Boolean(row.whatsapp_opt_in),
+    notes: row.notes || '', tags: JSON.parse(row.tags || '[]'), visits: row.visits,
     spent: fromCents(row.spent_cents), totalSpent: fromCents(row.spent_cents), lastVisit: row.last_visit,
     createdAt: row.created_at })));
 });
@@ -419,6 +468,7 @@ const clientDetails = z.object({
   cpf: z.string().refine(validCpf, 'CPF inválido.'),
   phone: z.string().transform(value => value.replace(/\D/g, '')).refine(value => /^\d{10,13}$/.test(value), 'Telefone inválido.'),
   email: optionalEmail, password: password.optional(),
+  whatsappOptIn: z.boolean().default(false),
 });
 const bookingInput = z.object({ serviceId: z.uuid(), date, time, client: clientDetails.optional() });
 app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
@@ -427,7 +477,8 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
   const service = serviceForBusiness(business.id, input.serviceId);
   let bookingClient = getSessionUser(req, 'client');
   if (bookingClient?.business_id !== business.id) bookingClient = undefined;
-  let newClient: { name: string; cpf: string; phone: string; email: string | null; hash: string } | undefined;
+  let newClient: { name: string; cpf: string; phone: string; email: string | null;
+    hash: string; whatsappOptIn: boolean } | undefined;
   if (!bookingClient) {
     if (!input.client) throw new ApiError(401, 'Faça login ou informe seus dados para agendar.');
     const cpf = normalizeCpf(input.client.cpf);
@@ -440,7 +491,8 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
     } else {
       if (!input.client.password) throw new ApiError(400, 'Crie uma senha no primeiro agendamento.');
       newClient = { name: input.client.name, cpf, phone: input.client.phone,
-        email: input.client.email || null, hash: await bcrypt.hash(input.client.password, 12) };
+        email: input.client.email || null, hash: await bcrypt.hash(input.client.password, 12),
+        whatsappOptIn: input.client.whatsappOptIn };
     }
   }
   const appointmentId = id();
@@ -450,34 +502,41 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
     if (user && input.client) {
       if (normalizeCpf(input.client.cpf) !== user.cpf)
         throw new ApiError(400, 'O CPF informado não corresponde à conta conectada.');
-      db.prepare(`UPDATE users SET phone=?,email=? WHERE id=? AND business_id=? AND role='client'`)
-        .run(input.client.phone, input.client.email || null, user.id, business.id);
+      db.prepare(`UPDATE users SET phone=?,email=?,whatsapp_opt_in=?,whatsapp_opt_in_at=?
+        WHERE id=? AND business_id=? AND role='client'`)
+        .run(input.client.phone, input.client.email || null, Number(input.client.whatsappOptIn),
+          input.client.whatsappOptIn ? new Date().toISOString() : null, user.id, business.id);
       user = db.prepare('SELECT * FROM users WHERE id=? AND business_id=?').get(user.id, business.id) as User;
     }
     if (!user && newClient) {
       const clientId = id();
-      db.prepare(`INSERT INTO users(id,business_id,role,name,email,phone,cpf,password_hash)
-        VALUES(?,?,'client',?,?,?,?,?)`).run(clientId, business.id, newClient.name,
-          newClient.email, newClient.phone, newClient.cpf, newClient.hash);
+      db.prepare(`INSERT INTO users(id,business_id,role,name,email,phone,cpf,password_hash,
+        whatsapp_opt_in,whatsapp_opt_in_at) VALUES(?,?,'client',?,?,?,?,?,?,?)`)
+        .run(clientId, business.id, newClient.name, newClient.email, newClient.phone,
+          newClient.cpf, newClient.hash, Number(newClient.whatsappOptIn),
+          newClient.whatsappOptIn ? new Date().toISOString() : null);
       user = db.prepare('SELECT * FROM users WHERE id=?').get(clientId) as User;
     }
     if (!user) throw new ApiError(401, 'Cliente não identificado.');
-    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,end_time,status,price_cents)
-      VALUES(?,?,?,?,?,?,?,'confirmed',?)`).run(appointmentId, business.id, user.id,
-        service.id, input.date, input.time, end, service.price_cents);
+    const bookingConsent = Boolean(input.client?.whatsappOptIn && user.whatsapp_opt_in);
+    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,end_time,status,
+      price_cents,whatsapp_opt_in) VALUES(?,?,?,?,?,?,?,'confirmed',?,?)`)
+      .run(appointmentId, business.id, user.id, service.id, input.date, input.time,
+        end, service.price_cents, Number(bookingConsent));
     return user;
   }).immediate();
-  createSession(res, result);
+  const session = createSession(req, res, result);
   const notificationStatus = await sendBookingConfirmation({
     businessId: business.id, appointmentId, recipient: result.phone,
     clientName: result.name, serviceName: service.name, date: input.date, time: input.time,
   });
-  res.status(201).json({ appointment: appointmentDto(getAppointment(business.id, appointmentId)!), notificationStatus });
+  res.status(201).json({ appointment: appointmentDto(getAppointment(business.id, appointmentId)!),
+    notificationStatus, ...session });
 });
 
-app.post('/api/appointments', owner, (req, res) => {
+app.post('/api/appointments', owner, async (req, res) => {
   const input = z.object({ clientId: z.uuid(), serviceId: z.uuid(), date, time,
-    notes: z.string().max(500).optional() }).parse(req.body);
+    notes: z.string().max(500).optional(), whatsappOptIn: z.boolean().optional() }).parse(req.body);
   const businessId = currentUser(res).business_id;
   const business = db.prepare('SELECT * FROM businesses WHERE id=?').get(businessId) as Row;
   const service = serviceForBusiness(businessId, input.serviceId);
@@ -487,13 +546,15 @@ app.post('/api/appointments', owner, (req, res) => {
   const appointmentId = id();
   db.transaction(() => {
     const end = bookingIsAllowed(business, service, input.date, input.time);
-    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,end_time,status,notes,price_cents)
-      VALUES(?,?,?,?,?,?,?,'confirmed',?,?)`).run(appointmentId, businessId, customer.id,
-        service.id, input.date, input.time, end, input.notes || '', service.price_cents);
+    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,end_time,status,
+      notes,price_cents,whatsapp_opt_in) VALUES(?,?,?,?,?,?,?,'confirmed',?,?,?)`)
+      .run(appointmentId, businessId, customer.id, service.id, input.date, input.time,
+        end, input.notes || '', service.price_cents,
+        Number(Boolean(customer.whatsapp_opt_in) && input.whatsappOptIn !== false));
   }).immediate();
-  void sendBookingConfirmation({ businessId, appointmentId, recipient: customer.phone,
+  const notificationStatus = await sendBookingConfirmation({ businessId, appointmentId, recipient: customer.phone,
     clientName: customer.name, serviceName: service.name, date: input.date, time: input.time });
-  res.status(201).json(appointmentDto(getAppointment(businessId, appointmentId)!));
+  res.status(201).json({ ...appointmentDto(getAppointment(businessId, appointmentId)!), notificationStatus });
 });
 
 async function loginClient(req: Request, res: Response) {
@@ -508,8 +569,8 @@ async function loginClient(req: Request, res: Response) {
     AND (email=? OR cpf=? OR phone=?)`).get(business.id, identifier.toLowerCase(), digits, digits) as User | undefined;
   if (!user || !await bcrypt.compare(input.password, user.password_hash))
     throw new ApiError(401, 'Dados de acesso inválidos.');
-  createSession(res, user);
-  res.json({ client: userDto(user), user: userDto(user), business: businessDto(business) });
+  const session = createSession(req, res, user);
+  res.json({ client: userDto(user), user: userDto(user), business: businessDto(business), ...session });
 }
 app.post('/api/client/login', rateLimit(15), loginClient);
 app.post('/api/public/:slug/login', rateLimit(15), loginClient);
@@ -532,9 +593,7 @@ function clientAppointments(req: Request, res: Response) {
   res.json(rows.map(appointmentDto));
 }
 function clientLogout(req: Request, res: Response) {
-  const token = req.cookies?.[cookieName('client')];
-  if (token) db.prepare('DELETE FROM sessions WHERE token_hash=?')
-    .run(createHash('sha256').update(token).digest('hex'));
+  revokeSession(req, 'client');
   res.clearCookie(cookieName('client'), { path: '/' });
   res.status(204).end();
 }
@@ -544,6 +603,41 @@ app.post('/api/client/logout', clientLogout);
 app.get('/api/public/:slug/me', clientMe);
 app.get('/api/public/:slug/appointments', clientAppointments);
 app.post('/api/public/:slug/logout', clientLogout);
+app.delete('/api/client/account', rateLimit(10), async (req, res) => {
+  const user = clientForRequest(req, res);
+  const { password: suppliedPassword } = z.object({ password: z.string().min(1).max(100) }).parse(req.body);
+  if (!await bcrypt.compare(suppliedPassword, user.password_hash))
+    throw new ApiError(401, 'Senha incorreta.');
+  db.transaction(() => {
+    if (getSessionUser(req, 'client')?.id !== user.id)
+      throw new ApiError(401, 'Sessão expirada. Faça login novamente.');
+    db.prepare(`DELETE FROM notification_outbox WHERE business_id=? AND appointment_id IN
+      (SELECT id FROM appointments WHERE business_id=? AND client_id=?)`)
+      .run(user.business_id, user.business_id, user.id);
+    db.prepare(`DELETE FROM financial_entries WHERE business_id=? AND appointment_id IN
+      (SELECT id FROM appointments WHERE business_id=? AND client_id=?)`)
+      .run(user.business_id, user.business_id, user.id);
+    db.prepare('DELETE FROM appointments WHERE business_id=? AND client_id=?')
+      .run(user.business_id, user.id);
+    db.prepare("DELETE FROM users WHERE business_id=? AND id=? AND role='client'")
+      .run(user.business_id, user.id);
+  }).immediate();
+  res.clearCookie(cookieName('client'), { path: '/' });
+  res.status(204).end();
+});
+function updateClientPreferences(req: Request, res: Response) {
+  const user = clientForRequest(req, res);
+  const { whatsappOptIn } = z.object({ whatsappOptIn: z.boolean() }).parse(req.body);
+  db.prepare(`UPDATE users SET whatsapp_opt_in=?,whatsapp_opt_in_at=?
+    WHERE id=? AND business_id=? AND role='client'`)
+    .run(Number(whatsappOptIn), whatsappOptIn ? new Date().toISOString() : null,
+      user.id, user.business_id);
+  const updated = db.prepare('SELECT * FROM users WHERE id=? AND business_id=?')
+    .get(user.id, user.business_id) as User;
+  res.json({ client: userDto(updated) });
+}
+app.patch('/api/client/preferences', updateClientPreferences);
+app.patch('/api/public/:slug/preferences', updateClientPreferences);
 
 function cancelClientAppointment(req: Request, res: Response) {
   const user = clientForRequest(req, res);
@@ -670,13 +764,57 @@ app.post('/api/assistant', owner, rateLimit(60, 60_000), async (req, res) => {
   res.json({ answer });
 });
 
-app.get('/api/notifications', owner, (_req, res) => {
-  const rows = db.prepare(`SELECT id,appointment_id,recipient,message,status,error,created_at,updated_at
-    FROM notification_outbox WHERE business_id=? ORDER BY created_at DESC LIMIT 100`)
-    .all(currentUser(res).business_id) as Row[];
+function publicOrigin(req: Request) {
+  return process.env.APP_ORIGIN || `${req.protocol}://${req.get('host')}`;
+}
+app.get('/api/notifications/config', owner, (req, res) => {
+  res.json(whatsAppConfig(currentUser(res).business_id, publicOrigin(req)));
+});
+app.patch('/api/notifications/config', owner, (req, res) => {
+  const input = z.object({
+    mode: z.enum(['disabled', 'simulate', 'meta']),
+    templateName: z.string().trim().max(100).refine(value => !value || /^[a-z0-9_]+$/.test(value)).default(''),
+    sender: z.string().trim().max(35).default(''),
+    phoneNumberId: z.string().trim().max(40).refine(value => !value || /^\d+$/.test(value)).default(''),
+    accessToken: z.string().trim().max(2048).nullable().optional(),
+    appSecret: z.string().trim().max(2048).nullable().optional(),
+  }).parse(req.body);
+  res.json(updateWhatsAppSettings(currentUser(res).business_id, input, publicOrigin(req)));
+});
+app.get('/api/notifications', owner, (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
+  const rows = db.prepare(`SELECT n.id,n.appointment_id,n.recipient,n.message,n.status,
+    n.provider_message_id,n.error,n.created_at,n.updated_at,
+    a.whatsapp_opt_in AS booking_consent,u.whatsapp_opt_in AS client_consent
+    FROM notification_outbox n JOIN appointments a ON a.id=n.appointment_id
+    JOIN users u ON u.id=a.client_id
+    WHERE n.business_id=? ORDER BY n.created_at DESC,n.id DESC LIMIT ?`)
+    .all(currentUser(res).business_id, limit) as Row[];
   res.json(rows.map(row => ({ id: row.id, appointmentId: row.appointment_id,
     recipient: row.recipient, message: row.message, status: row.status,
-    error: row.error, createdAt: row.created_at, updatedAt: row.updated_at })));
+    providerMessageId: row.provider_message_id, error: row.error,
+    canContact: Boolean(row.booking_consent && row.client_consent),
+    createdAt: row.created_at, updatedAt: row.updated_at })));
+});
+
+app.get('/api/webhooks/whatsapp/:key', (req, res) => {
+  const settings = webhookSettings(String(req.params.key));
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (!settings || mode !== 'subscribe' || typeof token !== 'string' ||
+    typeof challenge !== 'string' || !verifyWebhookChallenge(settings, token))
+    return res.status(403).end();
+  res.type('text/plain').send(challenge);
+});
+app.post('/api/webhooks/whatsapp/:key', (req, res) => {
+  const settings = webhookSettings(String(req.params.key));
+  const signature = req.get('x-hub-signature-256') || '';
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!settings || !rawBody || !verifyWebhookSignature(settings, signature, rawBody))
+    return res.status(403).end();
+  applyWebhookStatuses(settings, req.body);
+  res.status(200).send('EVENT_RECEIVED');
 });
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
@@ -690,6 +828,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     field: issue.path.join('.'), message: issue.message,
   })) });
   if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof NotificationError) return res.status(error.status).json({ error: error.message });
   if (error instanceof Error && /SQLITE_CONSTRAINT/.test(error.message))
     return res.status(409).json({ error: 'Este registro já existe ou está em uso.' });
   console.error('API error', error);

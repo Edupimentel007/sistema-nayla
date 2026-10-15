@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Nayla — Agenda e Gestão",
+  "short_name": "Nayla",
+  "description": "Agenda, clientes e finanças para profissionais de beleza.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf9fb",
+  "theme_color": "#fff8fb",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

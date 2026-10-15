@@ -1,0 +1,61 @@
+.pwa-install {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(310px, calc(100vw - 32px));
+  padding: 5px;
+  border: 1px solid var(--border, #f0e8ee);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--ink, #302637);
+  box-shadow: 0 10px 28px rgba(71, 36, 58, .15);
+  flex-wrap: wrap;
+}
+.pwa-install-action,
+.pwa-install-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.pwa-install-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pwa-install-icon {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  background: #d85c93;
+  color: #fff;
+  font-size: 18px;
+}
+.pwa-install-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border-radius: 8px;
+  color: var(--muted, #8c8491);
+  font-size: 20px;
+  line-height: 1;
+}
+.pwa-install-close:hover,
+.pwa-install-action:hover { background: var(--surface-2, #fff7fa); }
+.pwa-install p {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 4px 8px 7px;
+  font-size: 12px;
+  line-height: 1.45;
+}

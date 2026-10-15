@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT,
   phone TEXT,
   cpf TEXT,
+  whatsapp_opt_in INTEGER NOT NULL DEFAULT 0,
+  whatsapp_opt_in_at TEXT,
   notes TEXT NOT NULL DEFAULT '',
   tags TEXT NOT NULL DEFAULT '[]',
   password_hash TEXT NOT NULL,
@@ -33,6 +35,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS owner_email_global ON users(email) WHERE role=
 CREATE UNIQUE INDEX IF NOT EXISTS users_business_cpf ON users(business_id, cpf) WHERE cpf IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS users_business_phone ON users(business_id, phone) WHERE phone IS NOT NULL AND role = 'client';
 CREATE INDEX IF NOT EXISTS users_business_role ON users(business_id, role);
+
+CREATE TABLE IF NOT EXISTS business_whatsapp_settings (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK (mode IN ('simulate','meta','disabled')),
+  phone_number_id TEXT,
+  sender TEXT,
+  template_name TEXT,
+  access_token_encrypted TEXT,
+  app_secret_encrypted TEXT,
+  webhook_key TEXT NOT NULL UNIQUE,
+  webhook_verify_token TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
@@ -66,6 +81,7 @@ CREATE TABLE IF NOT EXISTS appointments (
   status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('pending','confirmed','completed','cancelled','no_show')),
   notes TEXT NOT NULL DEFAULT '',
   price_cents INTEGER NOT NULL,
+  whatsapp_opt_in INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TEXT
@@ -93,7 +109,8 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
   channel TEXT NOT NULL DEFAULT 'whatsapp',
   recipient TEXT NOT NULL,
   message TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending','sent','not_configured','failed')),
+  status TEXT NOT NULL CHECK (status IN ('pending','accepted','sent','delivered','read','failed','not_configured','simulated','opted_out')),
+  phone_number_id TEXT,
   provider_message_id TEXT,
   error TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

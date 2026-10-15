@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 const defaultPath = resolve(process.cwd(), 'database', 'nayla.sqlite');
 const databasePath = resolve(process.env.DATABASE_PATH || defaultPath);
@@ -20,12 +20,57 @@ for (const [table, column, definition] of [
   ['businesses', 'description', "TEXT NOT NULL DEFAULT ''"],
   ['users', 'notes', "TEXT NOT NULL DEFAULT ''"],
   ['users', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
+  ['users', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'whatsapp_opt_in_at', 'TEXT'],
   ['appointments', 'updated_at', 'TEXT'],
   ['appointments', 'notes', "TEXT NOT NULL DEFAULT ''"],
+  ['appointments', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
+  ['notification_outbox', 'phone_number_id', 'TEXT'],
+  ['business_whatsapp_settings', 'app_secret_encrypted', 'TEXT'],
+  ['business_whatsapp_settings', 'webhook_key', 'TEXT'],
+  ['business_whatsapp_settings', 'webhook_verify_token', 'TEXT'],
 ] as const) {
   const columns = db.pragma(`table_info(${table})`) as { name: string }[];
   if (!columns.some(existing => existing.name === column))
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+const webhookRows = db.prepare(`SELECT business_id FROM business_whatsapp_settings
+  WHERE webhook_key IS NULL OR webhook_verify_token IS NULL`).all() as { business_id: string }[];
+for (const row of webhookRows) db.prepare(`UPDATE business_whatsapp_settings
+  SET webhook_key=COALESCE(webhook_key,?),webhook_verify_token=COALESCE(webhook_verify_token,?)
+  WHERE business_id=?`).run(randomBytes(24).toString('hex'), randomBytes(24).toString('hex'), row.business_id);
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS business_whatsapp_webhook_key ON business_whatsapp_settings(webhook_key)');
+const outboxSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='notification_outbox'")
+  .get() as { sql: string } | undefined;
+if (outboxSchema && !outboxSchema.sql.includes("'opted_out'")) {
+  db.transaction(() => {
+    db.exec(`CREATE TABLE notification_outbox_new (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      appointment_id TEXT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL DEFAULT 'whatsapp',
+      recipient TEXT NOT NULL,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending','accepted','sent','delivered','read','failed','not_configured','simulated','opted_out')),
+      phone_number_id TEXT,
+      provider_message_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO notification_outbox_new
+      (id,business_id,appointment_id,channel,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at)
+      SELECT id,business_id,appointment_id,channel,recipient,message,status,phone_number_id,provider_message_id,error,created_at,updated_at
+      FROM notification_outbox;
+    DROP TABLE notification_outbox;
+    ALTER TABLE notification_outbox_new RENAME TO notification_outbox;
+    CREATE INDEX notifications_business ON notification_outbox(business_id,created_at);
+    CREATE INDEX notifications_provider_message ON notification_outbox(provider_message_id)
+      WHERE provider_message_id IS NOT NULL;`);
+  })();
+} else {
+  db.exec(`CREATE INDEX IF NOT EXISTS notifications_provider_message ON notification_outbox(provider_message_id)
+    WHERE provider_message_id IS NOT NULL`);
 }
 db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
 
