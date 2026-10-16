@@ -1,0 +1,9 @@
+.google-sign-in { display: grid; gap: 14px; margin-top: 20px; }
+.google-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; text-align: center; }
+.google-divider::before, .google-divider::after { content: ''; height: 1px; flex: 1; background: var(--border); }
+.google-button { justify-content: center; gap: 10px; font-weight: 700; }
+.google-g { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 50%; color: #4267a8; background: #fff; font: 700 14px Arial, sans-serif; }
+.remember-choice { display: flex !important; align-items: center; gap: 9px; font-size: 12px !important; font-weight: 600 !important; }
+.remember-choice input { width: 17px !important; min-height: 17px !important; height: 17px; accent-color: var(--pink); }
+.auth-help { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0; }
+.google-profile { display: grid; gap: 14px; margin-top: 16px; }

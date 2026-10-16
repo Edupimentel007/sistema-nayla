@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { Download, X } from 'lucide-react'
 
 type InstallEvent = Event & {
   prompt: () => Promise<void>
@@ -67,10 +68,10 @@ export function InstallPrompt() {
 
   return <aside className="pwa-install" aria-label="Instalação do Nayla">
     <button className="pwa-install-action" type="button" onClick={() => void install()}>
-      <span className="pwa-install-icon" aria-hidden="true">✦</span>
+      <span className="pwa-install-icon" aria-hidden="true"><Download size={16} strokeWidth={2} /></span>
       {installEvent ? 'Instalar Nayla' : 'Nayla na tela inicial'}
     </button>
-    <button className="pwa-install-close" type="button" onClick={dismiss} aria-label="Ocultar opção de instalação">×</button>
+    <button className="pwa-install-close" type="button" onClick={dismiss} aria-label="Ocultar opção de instalação"><X size={17} strokeWidth={2} /></button>
     {ios && instructions && !installEvent ?
       <p>Toque em <strong>Compartilhar</strong> no navegador e escolha <strong>Adicionar à Tela de Início</strong>.</p> : null}
   </aside>

@@ -1,0 +1,49 @@
+.business-logo {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--border, #e9dfe2);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--pink, #955069);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.business-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.business-logo-settings {
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+  font-size: 2rem;
+}
+
+.business-logo-sidebar {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 1.1rem;
+}
+
+.business-logo-public {
+  width: 70px;
+  height: 70px;
+  border-radius: 18px;
+  font-size: 1.8rem;
+}
+
+.booking-hero > .business-logo-public,
+.client-auth-card > .business-logo-public {
+  display: grid;
+  margin: 0 auto 18px;
+}

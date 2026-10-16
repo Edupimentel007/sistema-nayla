@@ -254,7 +254,7 @@ export async function sendBookingChangeNotification(details: BookingChange): Pro
     : `Sem horários livres em ${monthLabel(details.date)}; responda para combinar outro mês.`;
   const availabilityWithLink = bookingUrl
     ? `${availability} Veja todos os horários em ${bookingUrl}` : availability;
-  const message = `⚠️ RESPONDER URGENTE\nOlá, ${details.clientName}! Atualização do seu agendamento com ${business.name}: ${summary}\nDisponibilidade: ${availabilityWithLink}\nResponda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.`;
+  const message = `RESPONDER URGENTE\nOlá, ${details.clientName}! Atualização do seu agendamento com ${business.name}: ${summary}\nDisponibilidade: ${availabilityWithLink}\nResponda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.`;
   return dispatchNotification({
     businessId: details.businessId, appointmentId: details.appointmentId,
     recipient: details.recipient, kind: details.kind, template: 'urgent', message,

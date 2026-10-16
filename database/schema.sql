@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS businesses (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS business_logos (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+  mime_type TEXT NOT NULL CHECK (mime_type IN ('image/png','image/jpeg','image/webp')),
+  image_data BLOB NOT NULL,
+  version TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -28,6 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
   notes TEXT NOT NULL DEFAULT '',
   tags TEXT NOT NULL DEFAULT '[]',
   password_hash TEXT NOT NULL,
+  google_subject TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_business_email ON users(business_id, email) WHERE email IS NOT NULL;
@@ -57,6 +66,34 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS google_oauth_flows (
+  state_hash TEXT PRIMARY KEY,
+  verifier TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('owner','client')),
+  business_id TEXT,
+  slug TEXT,
+  remember INTEGER NOT NULL DEFAULT 0,
+  mobile INTEGER NOT NULL DEFAULT 0,
+  app_nonce TEXT,
+  csrf_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS google_oauth_tickets (
+  ticket_hash TEXT PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('owner','client')),
+  business_id TEXT,
+  slug TEXT,
+  google_subject TEXT NOT NULL,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  remember INTEGER NOT NULL DEFAULT 0,
+  mobile INTEGER NOT NULL DEFAULT 0,
+  app_nonce TEXT,
+  csrf_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS services (
   id TEXT PRIMARY KEY,

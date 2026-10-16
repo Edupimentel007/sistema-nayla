@@ -11,6 +11,9 @@ import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
   sendBookingChangeNotification, updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
   webhookSettings, whatsAppConfig } from './notifications.js';
 import { answerAssistant } from './assistant.js';
+import { businessLogoUrl, deleteBusinessLogo, parseLogo, publicBusinessLogo, uploadBusinessLogo } from './logo.js';
+import { analyticsRouter } from './analytics.js';
+import { GoogleAuthError, mountGoogleAuth } from './googleAuth.js';
 
 type Row = Record<string, any>;
 type User = Row & { id: string; business_id: string; role: 'owner' | 'client' };
@@ -71,15 +74,18 @@ setInterval(() => {
 }, 60_000).unref();
 
 function cookieName(role: 'owner' | 'client') { return role === 'owner' ? 'nayla_owner_session' : 'nayla_client_session'; }
-function createSession(req: Request, res: Response, user: User) {
+const weekMs = 7 * 24 * 60 * 60_000;
+const shortSessionMs = 24 * 60 * 60_000;
+function createSession(req: Request, res: Response, user: User, remember = false) {
   const token = randomBytes(32).toString('hex');
   const hash = createHash('sha256').update(token).digest('hex');
+  const lifetime = remember ? weekMs : shortSessionMs;
   db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)')
-    .run(hash, user.id, Date.now() + 30 * 24 * 60 * 60_000);
+    .run(hash, user.id, Date.now() + lifetime);
   if (!nativeRequest(req)) {
     res.cookie(cookieName(user.role), token, {
       httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production',
-      maxAge: 30 * 24 * 60 * 60_000, path: '/',
+      ...(remember ? { maxAge: lifetime } : {}), path: '/',
     });
   }
   return nativeRequest(req) ? { sessionToken: token } : {};
@@ -111,6 +117,8 @@ function requireRole(role: 'owner' | 'client') {
   };
 }
 const owner = requireRole('owner');
+app.use('/api/analytics', owner, analyticsRouter);
+app.use('/api/auth/google', rateLimit(20));
 function currentUser(res: Response): User { return res.locals.user as User; }
 function businessById(businessId: string) {
   const row = db.prepare('SELECT * FROM businesses WHERE id=?').get(businessId) as Row;
@@ -120,6 +128,7 @@ function businessDto(row: Row) {
   return {
     id: row.id, name: row.name, slug: row.slug, description: row.description || '', phone: row.phone || '',
     specialties: JSON.parse(row.specialties) as string[], address: row.address || '',
+    logoUrl: businessLogoUrl(row.id, row.slug),
     startTime: row.start_time, endTime: row.end_time,
     workdays: JSON.parse(row.workdays) as number[], slotInterval: row.slot_interval,
   };
@@ -129,6 +138,7 @@ function userDto(row: Row) {
     cpf: row.cpf || '', whatsappOptIn: Boolean(row.whatsapp_opt_in),
     role: row.role, businessId: row.business_id };
 }
+mountGoogleAuth(app, { createSession, businessById, businessDto, userDto, nativeRequest, rateLimit });
 function serviceDto(row: Row) {
   return { id: row.id, name: row.name, description: row.description,
     category: row.category, durationMinutes: row.duration_minutes,
@@ -163,7 +173,9 @@ function validCpf(value: string) {
 }
 const email = z.email().max(180).transform(value => value.trim().toLowerCase());
 const optionalEmail = z.preprocess(value => value === '' || value === null ? undefined : value, email.optional());
-const password = z.string().min(8, 'A senha precisa ter ao menos 8 caracteres.').max(100);
+const password = z.string().min(12, 'Use pelo menos 12 caracteres na senha.').max(100)
+  .refine(value => /[A-Za-z]/.test(value) && /\d/.test(value),
+    'Use letras e números na senha.');
 const slug = z.string().min(3).max(45).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const specialty = z.enum(['unhas', 'sobrancelhas', 'cilios']);
 const date = z.string().refine(validDate, 'Data inválida.');
@@ -175,7 +187,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.post('/api/auth/register', rateLimit(10), async (req, res) => {
   const input = z.object({
     ownerName: z.string().trim().min(2).max(100), businessName: z.string().trim().min(2).max(100),
-    slug, email, password, phone: z.string().optional(),
+    slug, email, password, phone: z.string().optional(), remember: z.boolean().default(false),
     specialties: z.array(specialty).min(1).max(3),
   }).parse(req.body);
   if (db.prepare('SELECT 1 FROM businesses WHERE slug=?').get(input.slug)) throw new ApiError(409, 'Este link de agendamento já está em uso.');
@@ -193,16 +205,17 @@ app.post('/api/auth/register', rateLimit(10), async (req, res) => {
       addService.run(id(), businessId, item.name, item.category, item.durationMinutes, toCents(item.price));
   })();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as User;
-  const session = createSession(req, res, user);
+  const session = createSession(req, res, user, input.remember);
   res.status(201).json({ user: userDto(user), business: businessById(businessId), ...session });
 });
 
 app.post('/api/auth/login', rateLimit(15), async (req, res) => {
-  const input = z.object({ email: email.optional(), identifier: z.string().optional(), password: z.string() }).parse(req.body);
+  const input = z.object({ email: email.optional(), identifier: z.string().optional(), password: z.string(),
+    remember: z.boolean().default(false) }).parse(req.body);
   const address = (input.email || input.identifier || '').trim().toLowerCase();
   const user = db.prepare(`SELECT * FROM users WHERE role='owner' AND email=?`).get(address) as User | undefined;
   if (!user || !await bcrypt.compare(input.password, user.password_hash)) throw new ApiError(401, 'E-mail ou senha inválidos.');
-  const session = createSession(req, res, user);
+  const session = createSession(req, res, user, input.remember);
   res.json({ user: userDto(user), business: businessById(user.business_id), ...session });
 });
 app.get('/api/auth/me', owner, (_req, res) => {
@@ -233,6 +246,9 @@ app.delete('/api/auth/account', owner, rateLimit(10), async (req, res) => {
 });
 
 app.get('/api/business', owner, (_req, res) => res.json(businessById(currentUser(res).business_id)));
+app.post('/api/business/logo', owner, parseLogo, uploadBusinessLogo);
+app.delete('/api/business/logo', owner, deleteBusinessLogo);
+app.get('/api/public/:slug/logo', publicBusinessLogo);
 app.patch('/api/business', owner, (req, res) => {
   const input = z.object({
     name: z.string().trim().min(2).max(100).optional(),
@@ -248,12 +264,26 @@ app.patch('/api/business', owner, (req, res) => {
   const startTime = input.startTime ?? previous.startTime;
   const endTime = input.endTime ?? previous.endTime;
   if (startTime >= endTime) throw new ApiError(400, 'O horário final deve ser posterior ao inicial.');
-  db.prepare(`UPDATE businesses SET name=?,description=?,phone=?,address=?,specialties=?,start_time=?,end_time=?,workdays=?,slot_interval=? WHERE id=?`)
-    .run(input.name ?? previous.name, input.description ?? previous.description,
-      input.phone ?? previous.phone, input.address ?? previous.address,
-      JSON.stringify(input.specialties ?? previous.specialties), startTime, endTime,
-      JSON.stringify(input.workdays ?? previous.workdays), input.slotInterval ?? previous.slotInterval,
-      currentUser(res).business_id);
+  const selected = [...new Set(input.specialties ?? previous.specialties)] as string[];
+  db.transaction(() => {
+    db.prepare(`UPDATE businesses SET name=?,description=?,phone=?,address=?,specialties=?,start_time=?,end_time=?,workdays=?,slot_interval=? WHERE id=?`)
+      .run(input.name ?? previous.name, input.description ?? previous.description,
+        input.phone ?? previous.phone, input.address ?? previous.address,
+        JSON.stringify(selected), startTime, endTime,
+        JSON.stringify(input.workdays ?? previous.workdays), input.slotInterval ?? previous.slotInterval,
+        currentUser(res).business_id);
+    db.prepare(`UPDATE services SET active=0 WHERE business_id=? AND category NOT IN (${selected.map(() => '?').join(',')})`)
+      .run(currentUser(res).business_id, ...selected);
+    const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents)
+      VALUES(?,?,?,?,?,?)`);
+    for (const category of selected.filter(value => !previous.specialties.includes(value))) {
+      const exists = db.prepare('SELECT 1 FROM services WHERE business_id=? AND category=? LIMIT 1')
+        .get(currentUser(res).business_id, category);
+      if (!exists) for (const item of catalog.filter(item => item.category === category))
+        addService.run(id(), currentUser(res).business_id, item.name, item.category,
+          item.durationMinutes, toCents(item.price));
+    }
+  }).immediate();
   res.json(businessById(currentUser(res).business_id));
 });
 
@@ -264,12 +294,14 @@ app.get('/api/services', owner, (_req, res) => {
 });
 const serviceInput = z.object({
   name: z.string().trim().min(2).max(100), description: z.string().trim().max(500).default(''),
-  category: z.enum(['unhas', 'sobrancelhas', 'cilios', 'outros']),
+  category: specialty,
   durationMinutes: z.number().int().min(15).max(480), price: money,
   active: z.boolean().default(true),
 });
 app.post('/api/services', owner, (req, res) => {
   const input = serviceInput.parse(req.body);
+  if (!businessById(currentUser(res).business_id).specialties.includes(input.category))
+    throw new ApiError(400, 'Escolha uma área de atuação do seu espaço para este serviço.');
   const serviceId = id();
   db.prepare(`INSERT INTO services(id,business_id,name,description,category,duration_minutes,price_cents,active)
     VALUES(?,?,?,?,?,?,?,?)`).run(serviceId, currentUser(res).business_id, input.name, input.description,
@@ -281,6 +313,8 @@ app.patch('/api/services/:id', owner, (req, res) => {
     .get(req.params.id, currentUser(res).business_id) as Row | undefined;
   if (!previous) throw new ApiError(404, 'Serviço não encontrado.');
   const input = serviceInput.partial().parse(req.body);
+  if (!businessById(currentUser(res).business_id).specialties.includes(input.category ?? previous.category))
+    throw new ApiError(400, 'Esta área não está ativa no seu espaço.');
   db.prepare(`UPDATE services SET name=?,description=?,category=?,duration_minutes=?,price_cents=?,active=?
     WHERE id=? AND business_id=?`).run(input.name ?? previous.name, input.description ?? previous.description,
       input.category ?? previous.category, input.durationMinutes ?? previous.duration_minutes,
@@ -474,6 +508,9 @@ function serviceForBusiness(businessId: string, serviceId: string) {
   const service = db.prepare('SELECT * FROM services WHERE id=? AND business_id=? AND active=1')
     .get(serviceId, businessId) as Row | undefined;
   if (!service) throw new ApiError(404, 'Serviço não encontrado.');
+  const business = businessById(businessId);
+  if (!business.specialties.includes(service.category))
+    throw new ApiError(404, 'Serviço não disponível neste espaço.');
   return service;
 }
 
@@ -481,7 +518,8 @@ app.get('/api/public/:slug', (req, res) => {
   const business = publicBusiness(String(req.params.slug));
   const services = db.prepare('SELECT * FROM services WHERE business_id=? AND active=1 ORDER BY category,name')
     .all(business.id) as Row[];
-  res.json({ business: businessDto(business), services: services.map(serviceDto) });
+  const allowed = JSON.parse(business.specialties) as string[];
+  res.json({ business: businessDto(business), services: services.filter(item => allowed.includes(item.category)).map(serviceDto) });
 });
 app.get('/api/public/:slug/availability', (req, res) => {
   const business = publicBusiness(String(req.params.slug));
@@ -491,7 +529,7 @@ app.get('/api/public/:slug/availability', (req, res) => {
     const user = clientForRequest(req, res);
     const row = getAppointment(business.id, input.excludeAppointmentId);
     if (!row || row.client_id !== user.id || user.business_id !== business.id)
-      throw new ApiError(403, 'Agendamento nÃ£o pertence a esta cliente.');
+      throw new ApiError(403, 'Agendamento não pertence a esta cliente.');
   }
   const service = serviceForBusiness(business.id, input.serviceId);
   res.json({ slots: availability(business, service, input.date, input.excludeAppointmentId) });
@@ -501,10 +539,11 @@ const clientDetails = z.object({
   name: z.string().trim().min(2).max(100),
   cpf: z.string().refine(validCpf, 'CPF inválido.'),
   phone: z.string().transform(value => value.replace(/\D/g, '')).refine(value => /^\d{10,13}$/.test(value), 'Telefone inválido.'),
-  email: optionalEmail, password: password.optional(),
+  email: optionalEmail, password: z.string().max(100).optional(),
   whatsappOptIn: z.boolean().default(false),
 });
-const bookingInput = z.object({ serviceId: z.uuid(), date, time, client: clientDetails.optional() });
+const bookingInput = z.object({ serviceId: z.uuid(), date, time,
+  remember: z.boolean().default(false), client: clientDetails.optional() });
 app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
   const business = publicBusiness(String(req.params.slug));
   const input = bookingInput.parse(req.body);
@@ -523,7 +562,8 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
         throw new ApiError(401, 'Cliente já cadastrado. Informe a senha para agendar.');
       bookingClient = existing;
     } else {
-      if (!input.client.password) throw new ApiError(400, 'Crie uma senha no primeiro agendamento.');
+      if (!input.client.password || !password.safeParse(input.client.password).success)
+        throw new ApiError(400, 'Crie uma senha com 12 ou mais caracteres, letras e números.');
       newClient = { name: input.client.name, cpf, phone: input.client.phone,
         email: input.client.email || null, hash: await bcrypt.hash(input.client.password, 12),
         whatsappOptIn: input.client.whatsappOptIn };
@@ -559,7 +599,7 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
         end, service.price_cents, Number(bookingConsent));
     return user;
   }).immediate();
-  const session = createSession(req, res, result);
+  const session = createSession(req, res, result, input.remember);
   const notificationStatus = await sendBookingConfirmation({
     businessId: business.id, appointmentId, recipient: result.phone,
     clientName: result.name, serviceName: service.name, date: input.date, time: input.time,
@@ -593,7 +633,7 @@ app.post('/api/appointments', owner, async (req, res) => {
 
 async function loginClient(req: Request, res: Response) {
   const input = z.object({ slug: slug.optional(), identifier: z.string().optional(), email: z.string().optional(),
-    password: z.string() }).parse(req.body);
+    password: z.string(), remember: z.boolean().default(false) }).parse(req.body);
   const slugValue = req.params.slug ? String(req.params.slug) : input.slug;
   if (!slugValue) throw new ApiError(400, 'Informe o link da profissional.');
   const business = publicBusiness(slugValue);
@@ -603,7 +643,7 @@ async function loginClient(req: Request, res: Response) {
     AND (email=? OR cpf=? OR phone=?)`).get(business.id, identifier.toLowerCase(), digits, digits) as User | undefined;
   if (!user || !await bcrypt.compare(input.password, user.password_hash))
     throw new ApiError(401, 'Dados de acesso inválidos.');
-  const session = createSession(req, res, user);
+  const session = createSession(req, res, user, input.remember);
   res.json({ client: userDto(user), user: userDto(user), business: businessDto(business), ...session });
 }
 app.post('/api/client/login', rateLimit(15), loginClient);
@@ -962,6 +1002,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     field: issue.path.join('.'), message: issue.message,
   })) });
   if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof GoogleAuthError) return res.status(error.status).json({ error: error.message });
   if (error instanceof NotificationError) return res.status(error.status).json({ error: error.message });
   if (error instanceof Error && /SQLITE_CONSTRAINT/.test(error.message))
     return res.status(409).json({ error: 'Este registro já existe ou está em uso.' });

@@ -8,6 +8,13 @@
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
         <string>Nayla</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array><string>com.edupimentel.nayla</string></array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

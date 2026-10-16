@@ -440,8 +440,9 @@ describe('Nayla API', () => {
     expect((await request('/api/auth/me', { headers: newOwnerBearer })).status).toBe(200);
     const expireDb = new Database(join(tempDirectory, 'nayla.sqlite'));
     try {
-      expireDb.prepare('UPDATE sessions SET expires_at=? WHERE token_hash=?').run(Date.now() - 1,
+      const updated = expireDb.prepare('UPDATE sessions SET expires_at=? WHERE token_hash=?').run(Date.now() - 60_000,
         createHash('sha256').update(nativeRegister.body.sessionToken).digest('hex'));
+      assert.equal(updated.changes, 1, 'the native session must exist in the test database');
     } finally { expireDb.close(); }
     expect((await request('/api/auth/me', { headers: newOwnerBearer })).status).toBe(401);
   });
@@ -608,7 +609,7 @@ describe('Nayla API', () => {
       expect(notices.body.some((item: any) => item.kind === 'client_cancelled' && item.status === 'simulated')).toBe(true);
       const urgentNotice = notices.body.find((item: any) => item.kind === 'owner_reschedule_request');
       expect(urgentNotice.status).toBe('simulated');
-      assert.ok(urgentNotice.message.startsWith('⚠️ RESPONDER URGENTE'));
+      assert.ok(urgentNotice.message.startsWith('RESPONDER URGENTE'));
       expect(urgentNotice.message).toContain('Disponibilidade: Algumas opções em');
       assert.equal(urgentNotice.message.includes('Sem horários livres neste mês'), false);
       assert.match(urgentNotice.message, /\d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/);
@@ -632,4 +633,113 @@ describe('Nayla API', () => {
         expect((cleanupDb.pragma('foreign_key_check') as unknown[]).length).toBe(0);
       } finally { cleanupDb.close(); }
     });
+
+  it('analyzes each business with explicit denominators and answers follow-up questions', { timeout: 30_000 }, async () => {
+    const ownerRegistration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Laura Martins', businessName: 'Ateliê Laura', slug: 'atelie-laura-analises',
+      email: 'laura.analises@example.test', password: 'SenhaAnaliseForte1!', specialties: ['unhas'],
+    }) });
+    expect(ownerRegistration.status).toBe(201);
+    const ownerCookie = ownerRegistration.cookie!;
+    const businessId = ownerRegistration.body.business.id as string;
+    const catalog = await request('/api/public/atelie-laura-analises');
+    const [firstService, secondService] = catalog.body.services as Array<{ id: string }>;
+    assert.ok(firstService && secondService);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const dayOffset = (days: number) => {
+      const date = new Date(`${today}T12:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + days);
+      return date.toISOString().slice(0, 10);
+    };
+    const fixtureDb = new Database(join(tempDirectory, 'nayla.sqlite'));
+    try {
+      const clientA = randomUUID();
+      const clientB = randomUUID();
+      const clientC = randomUUID();
+      const clientD = randomUUID();
+      const createClient = fixtureDb.prepare(`INSERT INTO users
+        (id,business_id,role,name,password_hash) VALUES(?,?,'client',?,'test-only')`);
+      createClient.run(clientA, businessId, 'Ana Costa');
+      createClient.run(clientB, businessId, 'Bia Lima');
+      createClient.run(clientC, businessId, 'Cris Melo');
+      createClient.run(clientD, businessId, 'Dani Reis');
+      const createAppointment = fixtureDb.prepare(`INSERT INTO appointments
+        (id,business_id,client_id,service_id,date,start_time,end_time,status,price_cents)
+        VALUES(?,?,?,?,?,'10:00','11:00',?,?)`);
+      const createEntry = fixtureDb.prepare(`INSERT INTO financial_entries
+        (id,business_id,appointment_id,type,description,amount_cents,date)
+        VALUES(?,?,?,'income','Atendimento concluído',?,?)`);
+      const visit = (clientId: string, serviceId: string, date: string,
+        status: string, cents: number) => {
+        const appointmentId = randomUUID();
+        createAppointment.run(appointmentId, businessId, clientId, serviceId, date, status, cents);
+        if (status === 'completed') createEntry.run(randomUUID(), businessId, appointmentId, cents, date);
+      };
+      visit(clientA, firstService.id, dayOffset(-8), 'completed', 10000);
+      visit(clientA, firstService.id, dayOffset(-3), 'completed', 12000);
+      visit(clientA, firstService.id, today, 'completed', 8000);
+      visit(clientB, secondService.id, dayOffset(-1), 'completed', 20000);
+      visit(clientC, secondService.id, today, 'cancelled', 15000);
+      visit(clientD, secondService.id, today, 'no_show', 20000);
+      fixtureDb.prepare(`INSERT INTO financial_entries
+        (id,business_id,type,description,amount_cents,date)
+        VALUES(?,?,'income','Venda avulsa',3000,?)`).run(randomUUID(), businessId, today);
+      fixtureDb.prepare(`INSERT INTO financial_entries
+        (id,business_id,type,description,amount_cents,date)
+        VALUES(?,?,'expense','Materiais',2000,?)`).run(randomUUID(), businessId, today);
+    } finally { fixtureDb.close(); }
+
+    expect((await request('/api/analytics?period=7')).status).toBe(401);
+    expect((await request('/api/analytics?period=8', {}, ownerCookie)).status).toBe(400);
+    const result = await request('/api/analytics?period=7', {}, ownerCookie);
+    expect(result.status).toBe(200);
+    const analysis = result.body;
+    expect(analysis.period.from).toBe(dayOffset(-6));
+    expect(analysis.period.previousFrom).toBe(dayOffset(-13));
+    expect(analysis.series).toHaveLength(7);
+    expect(analysis.overview.income.current).toBe(430);
+    expect(analysis.overview.income.previous).toBe(100);
+    expect(analysis.overview.expenses.current).toBe(20);
+    expect(analysis.overview.balance.current).toBe(410);
+    expect(analysis.overview.completed.current).toBe(3);
+    expect(analysis.overview.ticketAverage.current).toBe(133.33);
+    expect(analysis.overview.ticketAverage.previous).toBe(100);
+    expect(analysis.overview.clientsServed).toBe(2);
+    expect(analysis.clients.new).toBe(1);
+    expect(analysis.clients.returning).toBe(1);
+    expect(analysis.clients.retention).toEqual({ eligible: 1, returned: 1, rate: 100 });
+    expect(analysis.clients.frequency).toEqual({ one: 1, two: 1, threePlus: 0 });
+    expect(analysis.clients.top[0].name).toBe('Ana Costa');
+    expect(analysis.appointments.denominator).toBe(5);
+    expect(analysis.appointments.cancellationRate).toBe(20);
+    expect(analysis.appointments.noShowRate).toBe(20);
+    expect(analysis.services.find((item: any) => item.id === firstService.id).ticketAverage).toBe(100);
+    expect(analysis.series.find((item: any) => item.date === today).ticketAverage).toBe(80);
+    expect(analysis.insights.find((item: any) => item.category === 'finance').explanation).toContain('R$');
+
+    const ticketAnswer = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Qual meu ticket médio nos últimos 7 dias?' }) }, ownerCookie);
+    expect(ticketAnswer.status).toBe(200);
+    expect(ticketAnswer.body.answer).toContain('133,33');
+    const clientsAnswer = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Quais clientes mais vieram nos últimos 7 dias?' }) }, ownerCookie);
+    expect(clientsAnswer.body.answer).toContain('Ana Costa');
+    const rateAnswer = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Qual a taxa de cancelamento de clientes nos últimos 7 dias?' }) }, ownerCookie);
+    expect(rateAnswer.body.answer).toContain('20%');
+    const profitAnswer = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Qual serviço é mais lucrativo nos últimos 7 dias?' }) }, ownerCookie);
+    expect(profitAnswer.body.answer).toContain('não representam lucro');
+    const otherRegistration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Nina Ribeiro', businessName: 'Studio Nina', slug: 'studio-nina-analises',
+      email: 'nina.analises@example.test', password: 'SenhaAnaliseForte2!', specialties: ['cilios'],
+    }) });
+    expect(otherRegistration.status).toBe(201);
+    const isolated = await request('/api/analytics?period=7', {}, otherRegistration.cookie);
+    expect(isolated.status).toBe(200);
+    expect(isolated.body.overview.income.current).toBe(0);
+    expect(isolated.body.overview.clientsServed).toBe(0);
+    expect(isolated.body.clients.top).toHaveLength(0);
+  });
 });

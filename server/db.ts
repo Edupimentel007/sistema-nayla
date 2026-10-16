@@ -22,6 +22,7 @@ for (const [table, column, definition] of [
   ['users', 'tags', "TEXT NOT NULL DEFAULT '[]'"],
   ['users', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
   ['users', 'whatsapp_opt_in_at', 'TEXT'],
+  ['users', 'google_subject', 'TEXT'],
   ['appointments', 'updated_at', 'TEXT'],
   ['appointments', 'notes', "TEXT NOT NULL DEFAULT ''"],
   ['appointments', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
@@ -36,6 +37,10 @@ for (const [table, column, definition] of [
   if (!columns.some(existing => existing.name === column))
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS owner_google_subject ON users(google_subject) WHERE role='owner' AND google_subject IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS client_google_subject_per_business ON users(business_id,google_subject) WHERE role='client' AND google_subject IS NOT NULL;`);
+db.prepare('DELETE FROM google_oauth_flows WHERE expires_at < ?').run(Date.now());
+db.prepare('DELETE FROM google_oauth_tickets WHERE expires_at < ?').run(Date.now());
 const webhookRows = db.prepare(`SELECT business_id FROM business_whatsapp_settings
   WHERE webhook_key IS NULL OR webhook_verify_token IS NULL`).all() as { business_id: string }[];
 for (const row of webhookRows) db.prepare(`UPDATE business_whatsapp_settings
@@ -76,6 +81,10 @@ if (outboxSchema && !outboxSchema.sql.includes("'opted_out'")) {
     WHERE provider_message_id IS NOT NULL`);
 }
 db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
+// Sessions issued before the weekly policy must not keep their former 30-day lifetime.
+db.prepare(`UPDATE sessions SET expires_at=MIN(expires_at,
+  CAST(strftime('%s',created_at) AS INTEGER)*1000 + ?) WHERE expires_at>?`)
+  .run(7 * 24 * 60 * 60_000, Date.now());
 
 export const id = () => randomUUID();
 

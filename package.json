@@ -11,7 +11,7 @@
     "dev:vite": "vite --configLoader native --host 0.0.0.0",
     "build": "tsc --noEmit && vite build --configLoader native",
     "start": "tsx server/index.ts",
-    "test": "node --import tsx --test server/api.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 server/*.test.ts",
     "mobile:sync": "node scripts/check-mobile-env.mjs && npm run build && cap sync",
     "mobile:android": "cap open android",
     "mobile:ios": "cap open ios"
@@ -19,6 +19,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",
     "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor/app": "8.1.2",
     "@capacitor/android": "8.5.3",
     "@capacitor/browser": "8.0.5",
     "@capacitor/core": "8.5.3",

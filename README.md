@@ -10,6 +10,8 @@ Aplicativo de agenda, CRM e financeiro para profissionais de unhas, sobrancelhas
 - Visão de clientes do dia com serviços, horários e situação de cada atendimento.
 - CRM com dados das clientes e histórico de visitas.
 - Dashboard de 7, 30, 60 e 90 dias, faturamento, ticket médio, agendamentos e clientes recorrentes.
+- Análises com gráficos de agenda, receita, clientes e ticket médio, explicações e dicas práticas para melhorar os resultados; a assistente Nayla também responde sobre esses indicadores.
+- Personalização da página de agendamento e do painel com a logo enviada pela própria profissional.
 - Financeiro com entradas automáticas dos atendimentos concluídos e lançamentos manuais de receitas e despesas.
 - Assistente Nayla para consultas aos dados da própria empreendedora e pedidos guiados de remarcação ou cancelamento, com revisão e confirmação pela profissional antes da alteração.
 - Confirmações de agendamento com prévia local, histórico de status e integração opcional à WhatsApp Cloud API da Meta.
@@ -35,6 +37,7 @@ Links locais:
 | Cadastro da empreendedora | `http://localhost:3001/cadastro` |
 | Login da empreendedora | `http://localhost:3001/entrar` |
 | Painel | `http://localhost:3001/app` |
+| Análises | `http://localhost:3001/app/analises` |
 | Configurações e confirmações | `http://localhost:3001/app/configuracoes` |
 | Agendamento da cliente | `http://localhost:3001/agendar/SEU-LINK` |
 | Login da cliente | `http://localhost:3001/agendar/SEU-LINK/entrar` |
@@ -60,6 +63,8 @@ npm.cmd run mobile:android
 
 O comando `mobile:ios` abre o projeto iOS em um Mac com Xcode. Para gerar um Android App Bundle e testar no emulador ou dispositivo, instale Android Studio e o SDK Android. Para compilar/assinar iOS, use macOS e Xcode. O `appId` provisório é `com.edupimentel.nayla` em `capacitor.config.ts`; defina o identificador definitivo antes de cadastrar o app nas lojas.
 
+Para regenerar os ícones do app a partir de `assets/brand/nayla-icon-source.png`, execute `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1 -Force` e depois `npm.cmd run mobile:sync`.
+
 **Publicação nas lojas:** crie contas de desenvolvedor, configure assinatura e dados da loja, publique a API, faça testes em dispositivos e envie os pacotes para análise. A [Google Play cobra US$ 25 uma vez](https://support.google.com/googleplay/android-developer/answer/6112435?hl=en); o [Apple Developer Program custa US$ 99 por ano](https://developer.apple.com/programs/whats-included/), ou valor local equivalente no cadastro. Contas pessoais novas no Google Play precisam de [teste fechado com pelo menos 12 pessoas durante 14 dias](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en-GB). A [Apple exige utilidade de app além de uma página empacotada](https://developer.apple.com/app-store/review/guidelines/#minimum-functionality); a aprovação depende da análise da loja. O projeto nativo ainda precisa ser compilado e testado nos SDKs oficiais antes de submissão. Hospedagem, domínio e uso opcional de IA podem gerar custos à parte.
 
 ## Configuração opcional
@@ -67,6 +72,16 @@ O comando `mobile:ios` abre o projeto iOS em um Mac com Xcode. Para gerar um And
 ### Assistente com IA
 
 Defina `OPENAI_API_KEY` e, se desejar, `OPENAI_MODEL` no `.env`. As consultas estruturadas à agenda e ao financeiro funcionam sem a chave; a chave habilita respostas em linguagem natural para perguntas adicionais. A API calcula os dados autorizados antes de enviá-los ao modelo e limita o contexto ao negócio da usuária autenticada.
+
+### Entrada com Google e segurança da sessão
+
+O cadastro com e-mail e senha está disponível para profissionais e clientes. A Nayla orienta criar senhas com **12 ou mais caracteres, letras e números**. No primeiro agendamento, a cliente informa nome, CPF e telefone. A opção **Manter conectado** conserva o acesso neste dispositivo por até **7 dias**; sem ela, a sessão do servidor expira em 24 horas. Depois da validade, é preciso entrar novamente. Contas existentes preservam suas senhas; sessões antigas também são limitadas a sete dias na próxima inicialização.
+
+Para ativar o botão **Continuar com Google**, crie no [Google Cloud Console](https://console.cloud.google.com/apis/credentials) um cliente OAuth 2.0 do tipo **Aplicativo da Web** e configure no `.env` do servidor `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. Cadastre como URI de redirecionamento exatamente `APP_ORIGIN/api/auth/google/callback`. `APP_ORIGIN` pode ser `http://localhost:3001` para testes no próprio computador; em produção deve ser a origem pública HTTPS da Nayla. Não coloque o segredo em `VITE_` nem no app instalado. Sem as credenciais, o botão fica oculto e o acesso com senha segue funcionando.
+
+O Google retorna à API, que valida estado, PKCE, assinatura, emissor, público, validade e nonce do token. O vínculo usa o identificador estável da conta Google. Se um e-mail já tem conta Nayla, a pessoa confirma a senha existente antes de conectar o Google. No primeiro acesso da profissional, ela escolhe nome do espaço, link, áreas de atuação e uma senha de recuperação. No primeiro acesso da cliente, ela informa CPF, telefone e senha no espaço daquela profissional. Uma conta de cliente não dá acesso à agenda de outra profissional.
+
+Nos aplicativos Android e iOS, a autenticação abre o navegador seguro do sistema e retorna pelo link `com.edupimentel.nayla://auth`; o código de uso único só pode ser trocado pela instância do app que iniciou a operação. O retorno requer a API HTTPS configurada em `VITE_API_ORIGIN`, a sincronização Capacitor e teste real em cada plataforma. O cliente OAuth do Google continua sendo do tipo **Aplicativo da Web**, pois o redirecionamento registrado aponta para a API HTTPS.
 
 ### Confirmação por WhatsApp
 
@@ -81,7 +96,7 @@ Olá, {{1}}! Seu agendamento com {{2}} para {{3}} está confirmado: {{4}}, {{5}}
 Para alterações e cancelamentos, cadastre também um **segundo modelo aprovado em `pt_BR`**, com quatro parâmetros: cliente, espaço, resumo da alteração e algumas opções de horário com link para a agenda pública quando `APP_ORIGIN` estiver configurado. O sistema identifica o mês e ano das opções. Texto sugerido:
 
 ```text
-⚠️ RESPONDER URGENTE
+RESPONDER URGENTE
 Olá, {{1}}! Atualização do seu agendamento com {{2}}: {{3}}
 Disponibilidade: {{4}}
 Responda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.

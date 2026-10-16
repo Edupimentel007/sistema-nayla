@@ -82,6 +82,8 @@ export type Finance = { entries: FinancialEntry[]; income: number; expenses: num
 
 export type PublicBusiness = { business: Business; services: Service[] }
 export type ClientSession = { client: Pick<Client, 'id' | 'name' | 'cpf' | 'phone' | 'email' | 'whatsappOptIn'> }
+export type GoogleCompletion = (Session & { client?: ClientSession['client']; sessionToken?: string }) |
+  { registrationRequired: boolean; passwordLinkRequired: boolean; name: string; email: string; googleTicket?: string }
 export type NotificationStatus = 'pending' | 'opted_out' | 'simulated' | 'not_configured' | 'accepted' | 'sent' | 'delivered' | 'read' | 'failed'
 export type WhatsAppConfig = {
   mode: 'simulate' | 'meta' | 'disabled'
@@ -171,10 +173,28 @@ const json = (value: unknown) => JSON.stringify(value)
 const query = (values: Record<string, string>) => new URLSearchParams(values).toString()
 
 export const api = {
-  register: (data: { ownerName: string; businessName: string; slug: string; email: string; password: string; specialties: Specialty[] }) =>
+  register: (data: { ownerName: string; businessName: string; slug: string; email: string; password: string; specialties: Specialty[]; remember?: boolean }) =>
     requestSession<Session>('owner', '/api/auth/register', { method: 'POST', body: json(data) }),
-  login: (email: string, password: string) =>
-    requestSession<Session>('owner', '/api/auth/login', { method: 'POST', body: json({ email, password }) }),
+  login: (email: string, password: string, remember = false) =>
+    requestSession<Session>('owner', '/api/auth/login', { method: 'POST', body: json({ email, password, remember }) }),
+  googleConfig: () => request<{ enabled: boolean }>('/api/auth/google/config'),
+  googleStart: (data: { role: 'owner' | 'client'; slug?: string; remember: boolean; appNonce?: string }) =>
+    request<{ authorizationUrl: string }>('/api/auth/google/start', { method: 'POST', body: json(data) }),
+  googleComplete: async (role: SessionRole, ticket: string, appNonce?: string) => {
+    const result = await request<GoogleCompletion>('/api/auth/google/complete', {
+      method: 'POST', body: json({ role, ticket, appNonce }),
+    })
+    if (isNativeApp && 'user' in result) await saveNativeSession(role, result.sessionToken)
+    return result
+  },
+  googleLink: (role: SessionRole, ticket: string, password: string, identifier?: string, appNonce?: string) =>
+    requestSession<Session & ClientSession>(role, '/api/auth/google/link', {
+      method: 'POST', body: json({ role, ticket, password, identifier, appNonce }),
+    }),
+  googleRegister: (role: SessionRole, ticket: string, data: Record<string, unknown>, appNonce?: string) =>
+    requestSession<Session & ClientSession>(role, '/api/auth/google/register', {
+      method: 'POST', body: json({ role, ticket, appNonce, ...data }),
+    }),
   me: () => request<Session>('/api/auth/me'),
   logout: () => logoutSession('owner', '/api/auth/logout'),
   deleteOwnerAccount: async (password: string) => {
@@ -215,10 +235,10 @@ export const api = {
   publicBusiness: (slug: string) => request<PublicBusiness>(`/api/public/${encodeURIComponent(slug)}`),
   availability: (slug: string, serviceId: string, date: string) =>
     request<{ slots: string[] }>(`/api/public/${encodeURIComponent(slug)}/availability?${query({ serviceId, date })}`),
-  book: (slug: string, data: { serviceId: string; date: string; time: string; client: { name: string; cpf: string; phone: string; email?: string; password?: string; whatsappOptIn: boolean } }) =>
+  book: (slug: string, data: { serviceId: string; date: string; time: string; remember?: boolean; client: { name: string; cpf: string; phone: string; email?: string; password?: string; whatsappOptIn: boolean } }) =>
     requestSession<{ appointment: Appointment; notificationStatus: NotificationStatus }>('client', `/api/public/${encodeURIComponent(slug)}/bookings`, { method: 'POST', body: json(data) }),
-  clientLogin: (slug: string, cpf: string, password: string) =>
-    requestSession<ClientSession>('client', '/api/client/login', { method: 'POST', body: json({ slug, identifier: cpf, password }) }),
+  clientLogin: (slug: string, cpf: string, password: string, remember = false) =>
+    requestSession<ClientSession>('client', '/api/client/login', { method: 'POST', body: json({ slug, identifier: cpf, password, remember }) }),
   clientMe: (slug: string) => request<ClientSession>(`/api/public/${encodeURIComponent(slug)}/me`),
   updateClientPreferences: (slug: string, whatsappOptIn: boolean) =>
     request<ClientSession>(`/api/public/${encodeURIComponent(slug)}/preferences`, { method: 'PATCH', body: json({ whatsappOptIn }) }),
