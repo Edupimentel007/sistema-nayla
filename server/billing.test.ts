@@ -275,7 +275,8 @@ describe('cobrança Nayla via Mercado Pago', () => {
     try {
       const business = database.prepare("SELECT business_id FROM users WHERE email='trial.billing@example.test'")
         .get() as { business_id: string };
-      const started = Date.now() - 29 * 24 * 60 * 60_000;
+      // Keep clear of the exact 24-hour boundary; request latency can make ceil return 2.
+      const started = Date.now() - (29 * 24 + 1) * 60 * 60_000;
       database.prepare('UPDATE business_billing SET trial_started_at=? WHERE business_id=?')
         .run(started, business.business_id);
       const nearEnd = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;

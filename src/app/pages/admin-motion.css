@@ -1,0 +1,183 @@
+/* Motion within the professional workspace. Keep feedback brief so dense data stays readable. */
+@keyframes nayla-admin-enter {
+  from { opacity: 0; transform: translate3d(0, 9px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes nayla-admin-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes nayla-admin-lift {
+  from { transform: translate3d(0, 8px, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes nayla-admin-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes nayla-admin-chart {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes nayla-admin-pop {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes nayla-admin-dialog {
+  from { opacity: 0; transform: translate3d(0, 8px, 0) scale(.98); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.app-shell .content > .page {
+  animation: nayla-admin-enter 290ms cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.app-shell .page .metric-grid > .metric,
+.app-shell .page .analysis-lead-stats > .analysis-stat,
+.app-shell .page .client-summary > div {
+  animation: nayla-admin-enter 340ms cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.app-shell .page .metric-grid > :nth-child(2),
+.app-shell .page .analysis-lead-stats > :nth-child(2),
+.app-shell .page .client-summary > :nth-child(2) { animation-delay: 45ms; }
+.app-shell .page .metric-grid > :nth-child(3),
+.app-shell .page .analysis-lead-stats > :nth-child(3) { animation-delay: 90ms; }
+.app-shell .page .metric-grid > :nth-child(4),
+.app-shell .page .analysis-lead-stats > :nth-child(4) { animation-delay: 135ms; }
+
+.app-shell .page .today-row,
+.app-shell .page .appointment-row,
+.app-shell .page .top-client,
+.app-shell .page .schedule-item,
+.app-shell .page .finance-row,
+.app-shell .page .analysis-ranked > div,
+.app-shell .page .chat-message,
+.app-shell .page .assistant-action-card {
+  animation: nayla-admin-enter 250ms cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.app-shell .page .data-table tbody tr { animation: nayla-admin-appear 240ms ease-out both; }
+.app-shell .page .service-card { animation: nayla-admin-lift 260ms cubic-bezier(.2, .7, .25, 1) both; }
+
+.app-shell .page .today-row:nth-child(2),
+.app-shell .page .appointment-row:nth-child(2),
+.app-shell .page .top-client:nth-child(2),
+.app-shell .page .schedule-item:nth-child(2),
+.app-shell .page .data-table tbody tr:nth-child(2),
+.app-shell .page .finance-row:nth-child(2),
+.app-shell .page .service-card:nth-child(2) { animation-delay: 35ms; }
+
+.app-shell .page .today-row:nth-child(3),
+.app-shell .page .appointment-row:nth-child(3),
+.app-shell .page .top-client:nth-child(3),
+.app-shell .page .schedule-item:nth-child(3),
+.app-shell .page .data-table tbody tr:nth-child(3),
+.app-shell .page .finance-row:nth-child(3),
+.app-shell .page .service-card:nth-child(3) { animation-delay: 70ms; }
+
+.app-shell .page .today-row:nth-child(4),
+.app-shell .page .appointment-row:nth-child(4),
+.app-shell .page .top-client:nth-child(4),
+.app-shell .page .schedule-item:nth-child(4),
+.app-shell .page .data-table tbody tr:nth-child(4),
+.app-shell .page .finance-row:nth-child(4),
+.app-shell .page .service-card:nth-child(4) { animation-delay: 105ms; }
+
+.app-shell .page .today-row:nth-child(5),
+.app-shell .page .appointment-row:nth-child(5),
+.app-shell .page .top-client:nth-child(5),
+.app-shell .page .schedule-item:nth-child(5),
+.app-shell .page .data-table tbody tr:nth-child(5),
+.app-shell .page .finance-row:nth-child(5),
+.app-shell .page .service-card:nth-child(5) { animation-delay: 140ms; }
+
+.app-shell .page .analysis-tab-body {
+  animation: nayla-admin-enter 260ms cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.app-shell .page .analysis-bar-track > span {
+  transform-origin: left center;
+  animation: nayla-admin-bar 680ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.app-shell .page .analysis-line {
+  stroke-dasharray: 1;
+  animation: nayla-admin-chart 780ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.app-shell .page .analysis-point {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nayla-admin-pop 260ms ease-out 530ms both;
+}
+
+.app-shell .page .analysis-tabs button,
+.app-shell .page .tab-filter button,
+.app-shell .page .period-picker button,
+.app-shell .page .segmented button,
+.app-shell .page .weekday-options button {
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease,
+    box-shadow 180ms ease, transform 160ms ease;
+}
+
+.app-shell .page .analysis-tabs button:active,
+.app-shell .page .tab-filter button:active,
+.app-shell .page .period-picker button:active,
+.app-shell .page .segmented button:active,
+.app-shell .page .weekday-options button:active { transform: scale(.97); }
+
+.app-shell .page .chat-empty,
+.app-shell .page .agenda-notice,
+.app-shell .page .form-success,
+.app-shell .page .form-error { animation: nayla-admin-appear 230ms ease-out both; }
+
+.app-shell .modal-backdrop { animation: nayla-admin-appear 170ms ease-out both; }
+.app-shell .modal,
+.app-shell .inbox-popover { animation: nayla-admin-dialog 220ms cubic-bezier(.2, .7, .25, 1) both; }
+.app-shell .inbox-item { animation: nayla-admin-appear 200ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .content > .page,
+  .app-shell .page .metric-grid > .metric,
+  .app-shell .page .analysis-lead-stats > .analysis-stat,
+  .app-shell .page .client-summary > div,
+  .app-shell .page .today-row,
+  .app-shell .page .appointment-row,
+  .app-shell .page .top-client,
+  .app-shell .page .schedule-item,
+  .app-shell .page .data-table tbody tr,
+  .app-shell .page .finance-row,
+  .app-shell .page .service-card,
+  .app-shell .page .analysis-ranked > div,
+  .app-shell .page .chat-message,
+  .app-shell .page .assistant-action-card,
+  .app-shell .page .analysis-tab-body,
+  .app-shell .page .analysis-bar-track > span,
+  .app-shell .page .analysis-line,
+  .app-shell .page .analysis-point,
+  .app-shell .page .chat-empty,
+  .app-shell .page .agenda-notice,
+  .app-shell .page .form-success,
+  .app-shell .page .form-error,
+  .app-shell .modal-backdrop,
+  .app-shell .modal,
+  .app-shell .inbox-popover,
+  .app-shell .inbox-item {
+    animation: none !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+
+  .app-shell .page .analysis-tabs button,
+  .app-shell .page .tab-filter button,
+  .app-shell .page .period-picker button,
+  .app-shell .page .segmented button,
+  .app-shell .page .weekday-options button { transition: none !important; }
+}

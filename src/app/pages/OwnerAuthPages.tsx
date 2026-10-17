@@ -8,6 +8,7 @@ import { SignupServiceSelector, type CustomServiceDraft } from '../SignupService
 import { SpecialtySelector } from '../SpecialtySelector'
 import { useAuth, useTheme } from '../contexts'
 import { Logo } from '../shared'
+import './public-motion.css'
 
 type GooglePending = { ticket: string; email: string; name: string; passwordLinkRequired: boolean }
 const strongPassword = (value: string) => value.length >= 12 && /[A-Za-z]/.test(value) && /\d/.test(value)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
@@ -78,6 +78,7 @@ async function openTrustedCheckout(url: string) {
 
 export function OnboardingPage() {
   const native = Capacitor.isNativePlatform()
+  const mainRef = useRef<HTMLElement>(null)
   const { session } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
@@ -101,6 +102,24 @@ export function OnboardingPage() {
     finally { setLoading(false) }
   }
   useEffect(() => { void refresh() }, [])
+  useEffect(() => {
+    const main = mainRef.current
+    if (!main || !('IntersectionObserver' in window) ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const sections = main.querySelectorAll<HTMLElement>('.onboarding-section, .onboarding-help')
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return
+        entry.target.classList.add('nayla-onboarding-visible')
+        observer.unobserve(entry.target)
+      })
+    }, { threshold: .08, rootMargin: '0px 0px -30px 0px' })
+    sections.forEach(section => {
+      section.classList.add('nayla-onboarding-reveal')
+      observer.observe(section)
+    })
+    return () => observer.disconnect()
+  }, [])
 
   const finish = async (destination = '/app') => {
     if (!subscription?.accessGranted) {
@@ -149,7 +168,7 @@ export function OnboardingPage() {
 
   return <div className="onboarding-page">
     <header className="onboarding-header"><Logo small /><div><span>Seu começo na Nayla</span><button className="icon-button" type="button" onClick={toggleTheme} aria-label={theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}>{theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}</button></div></header>
-    <main className="onboarding-main">
+    <main className="onboarding-main" ref={mainRef}>
       <section className="onboarding-intro" aria-labelledby="onboarding-title">
         <span className="eyebrow">BEM-VINDA AO SEU ESPAÇO</span>
         <h1 id="onboarding-title">Vamos organizar o seu trabalho, {session?.user.name.split(' ')[0]}.</h1>

@@ -1,0 +1,114 @@
+/* Motion stays brief and purposeful across the professional and client apps. */
+@media (prefers-reduced-motion: no-preference) {
+  .btn {
+    transition: background .18s ease, border-color .18s ease, color .18s ease,
+      box-shadow .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+  }
+
+  .btn:active:not(:disabled):not([aria-disabled='true']),
+  .icon-button:active:not(:disabled),
+  .period-picker button:active:not(:disabled) {
+    transform: translateY(1px) scale(.975);
+    transition-duration: .08s;
+  }
+
+  .icon-button,
+  .side-link,
+  .period-picker button,
+  .header-login,
+  .trial-spotlight a {
+    transition: color .18s ease, background-color .18s ease,
+      border-color .18s ease, transform .18s ease;
+  }
+
+  .public-site .hero-copy {
+    animation: nayla-enter .62s cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .public-site .hero-art {
+    animation: nayla-fade .75s .12s ease both;
+  }
+
+  .public-site .trial-spotlight {
+    animation: nayla-fade .45s ease both;
+  }
+
+  .sidebar-scrim {
+    animation: nayla-fade .2s ease both;
+  }
+
+  .public-site.motion-ready .reveal-on-scroll {
+    opacity: 0;
+    transform: translate3d(0, 17px, 0);
+    transition: opacity .56s ease, transform .56s cubic-bezier(.2, .8, .2, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  .public-site.motion-ready .reveal-on-scroll.in-view {
+    opacity: 1;
+    transform: none;
+  }
+
+  @keyframes nayla-enter {
+    from { opacity: 0; transform: translate3d(0, 17px, 0); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes nayla-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:active):not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(-2px);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 7px 16px rgba(83, 38, 58, .15);
+  }
+
+  .icon-button:hover:not(:active):not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .side-link:hover:not(.active) {
+    transform: translateX(3px);
+  }
+
+  .public-site .feature-card {
+    transition: border-color .22s ease, box-shadow .22s ease, transform .22s ease;
+  }
+
+  .public-site .feature-card:hover {
+    border-color: var(--pink);
+    box-shadow: 0 12px 28px rgba(53, 37, 44, .075);
+    transform: translateY(-4px);
+  }
+
+  .public-site.motion-ready .feature-card.reveal-on-scroll.in-view:hover {
+    transform: translateY(-4px);
+  }
+
+  .header-login:hover svg,
+  .trial-spotlight a:hover svg,
+  .hero-buttons .btn:hover svg,
+  .cta-band .btn:hover svg {
+    transform: translateX(3px);
+  }
+
+  .header-login svg,
+  .trial-spotlight a svg,
+  .hero-buttons .btn svg,
+  .cta-band .btn svg {
+    transition: transform .18s ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-site.motion-ready .reveal-on-scroll {
+    opacity: 1;
+    transform: none;
+  }
+}

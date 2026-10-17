@@ -3,6 +3,7 @@ import { Activity, ArrowDownRight, ArrowUpRight, CalendarCheck2, CircleHelp, Ref
 import { getAnalytics, type Analytics, type AnalyticsPeriod, type Comparison } from '../../lib/analyticsApi'
 import { ErrorState, Loading, money, PageHeading, PeriodPicker, shortDate } from '../shared'
 import './analytics.css'
+import './admin-motion.css'
 
 type Tab = 'visao' | 'clientes' | 'ticket' | 'servicos' | 'financeiro' | 'agenda'
 const tabs: Array<{ key: Tab; label: string }> = [
@@ -97,7 +98,7 @@ function TrendChart({ data, keys, title }: {
         </text>
       </g>)}
       {keys.flatMap(line => paths(line.key).map((path, index) => <path key={`${line.key}-${index}`}
-        d={path} className={`analysis-line ${line.tone}`} />))}
+        d={path} pathLength={1} className={`analysis-line ${line.tone}`} />))}
       {keys.filter(line => line.key === 'ticketAverage').flatMap(line => data.map((day, index) =>
         day[line.key] === null ? null : <circle key={`${line.key}-${day.date}`}
           cx={xAt(index)} cy={yAt(day[line.key]!)} r="3" className={`analysis-point ${line.tone}`}>

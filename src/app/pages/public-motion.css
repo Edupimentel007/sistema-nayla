@@ -1,0 +1,150 @@
+/* Motion is deliberately brief: choices give feedback without delaying a task. */
+@keyframes nayla-public-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nayla-choice-settle {
+  0% { transform: scale(.975); }
+  65% { transform: scale(1.015); }
+  100% { transform: scale(1); }
+}
+
+@keyframes nayla-check-appear {
+  from { opacity: 0; transform: scale(.55) rotate(-12deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+.booking-site .booking-hero,
+.booking-site .client-page-top,
+.booking-site .client-auth-card,
+.auth-page .auth-card {
+  animation: nayla-public-enter .42s cubic-bezier(.2, .75, .3, 1) both;
+}
+
+.booking-site .booking-layout,
+.booking-site .booking-success,
+.booking-site .client-appointment-entry,
+.auth-page .registration-trial {
+  animation: nayla-public-enter .36s cubic-bezier(.2, .75, .3, 1) both;
+}
+
+.booking-site .booking-layout { animation-delay: .06s; }
+.booking-site .booking-form-area[data-step] { animation: nayla-public-enter .3s cubic-bezier(.2, .75, .3, 1) both; }
+.booking-site .booking-date-section,
+.booking-site .client-appointment-editor,
+.booking-site .client-appointment-notice,
+.auth-page .signup-custom-row,
+.auth-page .signup-service-group[open] .signup-service-list {
+  animation: nayla-public-enter .27s cubic-bezier(.2, .75, .3, 1) both;
+}
+
+.booking-site .booking-service,
+.booking-site .slots button,
+.booking-site .client-appointment-slots button,
+.auth-page .specialty-choice,
+.auth-page .signup-service-option,
+.auth-page .signup-service-group summary {
+  transition: transform .17s ease, border-color .18s ease, background-color .18s ease,
+    box-shadow .18s ease, color .18s ease;
+}
+
+@media (hover: hover) {
+  .booking-site .booking-service:hover,
+  .booking-site .slots button:hover:not(.selected),
+  .booking-site .client-appointment-slots button:hover:not(.selected),
+  .auth-page .specialty-choice:hover,
+  .auth-page .signup-service-group summary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 7px 18px rgba(74, 38, 55, .08);
+  }
+}
+
+.booking-site .booking-service:active,
+.booking-site .slots button:active,
+.booking-site .client-appointment-slots button:active,
+.auth-page .specialty-choice:active,
+.auth-page .signup-service-group summary:active { transform: scale(.985); }
+
+.booking-site .booking-service.selected,
+.booking-site .slots button.selected,
+.booking-site .client-appointment-slots button.selected,
+.auth-page .specialty-choice.selected {
+  animation: nayla-choice-settle .28s cubic-bezier(.2, .75, .3, 1);
+}
+
+.booking-site .booking-service.selected .booking-service-radio {
+  animation: nayla-check-appear .3s cubic-bezier(.2, .75, .3, 1) both;
+}
+
+.booking-site .booking-stepper .current b {
+  transition: background-color .2s ease, color .2s ease, transform .2s ease;
+  transform: scale(1.06);
+}
+
+.booking-site .booking-date-input:focus-within,
+.booking-site .client-appointment-fields :is(input, select):focus-visible,
+.booking-site .client-appointment-reason textarea:focus-visible {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(161, 61, 98, .12);
+}
+
+.booking-site .booking-summary .summary-lines strong,
+.booking-site .booking-summary .summary-total strong { transition: color .2s ease; }
+
+.booking-site .booking-success > span {
+  animation: nayla-choice-settle .38s cubic-bezier(.2, .75, .3, 1) .12s both;
+}
+
+.booking-site .form-error,
+.booking-site .form-success,
+.auth-page .form-error,
+.auth-page .form-success {
+  animation: nayla-public-enter .22s ease-out both;
+}
+
+.booking-site :is(.booking-service, .slots button, .client-appointment-slots button):focus-visible,
+.auth-page :is(.specialty-choice, .signup-service-group summary):focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-site .booking-hero,
+  .booking-site .client-page-top,
+  .booking-site .client-auth-card,
+  .auth-page .auth-card,
+  .booking-site .booking-layout,
+  .booking-site .booking-success,
+  .booking-site .client-appointment-entry,
+  .auth-page .registration-trial,
+  .booking-site .booking-form-area[data-step],
+  .booking-site .booking-date-section,
+  .booking-site .client-appointment-editor,
+  .booking-site .client-appointment-notice,
+  .auth-page .signup-custom-row,
+  .auth-page .signup-service-group[open] .signup-service-list,
+  .booking-site .booking-service.selected,
+  .booking-site .slots button.selected,
+  .booking-site .client-appointment-slots button.selected,
+  .auth-page .specialty-choice.selected,
+  .booking-site .booking-service.selected .booking-service-radio,
+  .booking-site .booking-success > span,
+  .booking-site .form-error,
+  .booking-site .form-success,
+  .auth-page .form-error,
+  .auth-page .form-success { animation: none; }
+
+  .booking-site .booking-service,
+  .booking-site .slots button,
+  .booking-site .client-appointment-slots button,
+  .auth-page .specialty-choice,
+  .auth-page .signup-service-option,
+  .auth-page .signup-service-group summary { transition: none; }
+
+  .booking-site .booking-service:hover,
+  .booking-site .slots button:hover,
+  .booking-site .client-appointment-slots button:hover,
+  .auth-page .specialty-choice:hover,
+  .auth-page .signup-service-group summary:hover { transform: none; }
+}

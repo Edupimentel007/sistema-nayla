@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ArrowUpRight, CalendarClock, Check, Copy, Pencil, Plus, Search, UserRoundPlus, UsersRound, X } from 'lucide-react'
 import { api, type Client } from '../../lib/api'
 import { EmptyState, ErrorState, Loading, money, PageHeading, Panel, shortDate } from '../shared'
+import './admin-motion.css'
 
 const digits = (value: string) => value.replace(/\D/g, '')
 const daysSince = (value?: string | null) => value ? Math.floor((Date.now() - new Date(`${value.slice(0, 10)}T00:00:00-03:00`).getTime()) / 86_400_000) : null

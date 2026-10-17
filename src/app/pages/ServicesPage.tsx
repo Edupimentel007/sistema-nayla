@@ -4,6 +4,7 @@ import { api, type Service, type Specialty } from '../../lib/api'
 import { useAuth } from '../contexts'
 import { EmptyState, ErrorState, Loading, money, PageHeading, Panel, serviceCategories, specialties } from '../shared'
 import './services.css'
+import './admin-motion.css'
 
 const suggestions: Partial<Record<Specialty, Array<{ name: string; durationMinutes: number }>>> = {
   unhas: [

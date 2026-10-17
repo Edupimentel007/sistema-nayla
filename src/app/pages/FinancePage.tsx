@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Plus, Trash2, Wallet, X } from 'lucide-react'
 import { api, type Finance, type FinancialEntry } from '../../lib/api'
 import { EmptyState, ErrorState, Loading, localISODate, money, PageHeading, Panel, PeriodPicker, shortDate } from '../shared'
+import './admin-motion.css'
 
 export function FinancePage() {
   const [period, setPeriod] = useState(30)

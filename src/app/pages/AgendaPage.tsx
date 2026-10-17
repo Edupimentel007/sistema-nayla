@@ -4,6 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Filter, Plus, UserRoun
 import { api, type Appointment, type AppointmentStatus, type NotificationStatus } from '../../lib/api'
 import { dateTime, EmptyState, ErrorState, Loading, localISODate, money, PageHeading, Panel, StatusBadge, time } from '../shared'
 import { NewAppointmentModal } from './NewAppointmentModal'
+import './admin-motion.css'
 
 const statuses: Array<{ value: AppointmentStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Todos' },

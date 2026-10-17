@@ -6,6 +6,7 @@ import { publicBookingLink } from '../../lib/appOrigin'
 import { useAuth } from '../contexts'
 import { calendarDay, calendarMonth, dateTime, EmptyState, ErrorState, fullDate, Loading, money, PageHeading, Panel, PeriodPicker, StatusBadge, time } from '../shared'
 import './admin-updates.css'
+import './admin-motion.css'
 
 type Today = { date: string; appointments: Appointment[] }
 

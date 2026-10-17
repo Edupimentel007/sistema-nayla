@@ -69,6 +69,90 @@
 .onboarding-pix label { display: grid; grid-column: 1 / -1; gap: 7px; font-size: 12px; font-weight: 700; }
 .onboarding-pix textarea { width: 100%; min-height: 80px; padding: 11px; resize: vertical; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
 .onboarding-pix .btn { justify-self: start; grid-column: 1 / -1; }
+
+/* A quiet response to entering, choosing and completing each step. */
+@keyframes nayla-onboarding-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nayla-onboarding-selected {
+  0% { transform: scale(.975); }
+  65% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+
+.onboarding-intro,
+.trial-banner { animation: nayla-onboarding-enter .45s cubic-bezier(.2, .75, .3, 1) both; }
+.trial-banner { animation-delay: .08s; }
+
+.onboarding-section.nayla-onboarding-reveal,
+.onboarding-help.nayla-onboarding-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity .5s ease, transform .5s cubic-bezier(.2, .75, .3, 1);
+}
+
+.onboarding-section.nayla-onboarding-visible,
+.onboarding-help.nayla-onboarding-visible { opacity: 1; transform: translateY(0); }
+
+.onboarding-feature,
+.onboarding-plan,
+.onboarding-methods button {
+  transition: transform .2s ease, border-color .2s ease, background-color .2s ease,
+    box-shadow .2s ease;
+}
+
+@media (hover: hover) {
+  .onboarding-feature:hover,
+  .onboarding-plan:hover,
+  .onboarding-methods button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 26px rgba(69, 36, 51, .09);
+  }
+}
+
+.onboarding-plan:active,
+.onboarding-methods button:active { transform: scale(.985); }
+.onboarding-plan.selected,
+.onboarding-methods button.selected {
+  animation: nayla-onboarding-selected .28s cubic-bezier(.2, .75, .3, 1);
+}
+
+.onboarding-plan.selected .onboarding-radio { animation: nayla-onboarding-enter .2s ease-out both; }
+.onboarding-payment,
+.onboarding-pix,
+.onboarding-status,
+.onboarding-page .form-error { animation: nayla-onboarding-enter .3s ease-out both; }
+
+.onboarding-page :is(.onboarding-plan, .onboarding-methods button):focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-intro,
+  .trial-banner,
+  .onboarding-plan.selected,
+  .onboarding-methods button.selected,
+  .onboarding-plan.selected .onboarding-radio,
+  .onboarding-payment,
+  .onboarding-pix,
+  .onboarding-status,
+  .onboarding-page .form-error { animation: none; }
+
+  .onboarding-section.nayla-onboarding-reveal,
+  .onboarding-help.nayla-onboarding-reveal { opacity: 1; transform: none; transition: none; }
+
+  .onboarding-feature,
+  .onboarding-plan,
+  .onboarding-methods button { transition: none; }
+
+  .onboarding-feature:hover,
+  .onboarding-plan:hover,
+  .onboarding-methods button:hover { transform: none; }
+}
+
 @media (max-width: 850px) { .onboarding-features { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .trial-banner { grid-template-columns: 1fr; gap: 14px; } .trial-banner-value { padding: 0 0 0 17px; } .trial-banner-value strong { font-size: 52px; } }
 @media (max-width: 580px) { .onboarding-header > div > span { display: none; } .onboarding-main { padding: 36px 18px 60px; } .onboarding-section { margin-top: 48px; } .onboarding-section-heading { display: block; } .onboarding-section-heading > span { display: block; margin-top: 8px; } .onboarding-features, .onboarding-plans { grid-template-columns: 1fr; } .onboarding-feature { min-height: 0; } .onboarding-payment, .onboarding-pix { padding: 18px; } .onboarding-pay-button { width: 100%; } .onboarding-pix { grid-template-columns: 1fr; } .onboarding-pix img { justify-self: center; } .onboarding-pix label, .onboarding-pix .btn { grid-column: auto; } }

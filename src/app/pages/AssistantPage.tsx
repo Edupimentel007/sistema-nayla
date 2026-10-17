@@ -4,6 +4,7 @@ import { api, type Appointment, type NotificationStatus, type OwnerActionExpecta
 import { useAuth } from '../contexts'
 import { dateTime, PageHeading, Panel } from '../shared'
 import './admin-updates.css'
+import './admin-motion.css'
 
 type Message = { id: string; role: 'user' | 'assistant'; text: string }
 type ActionKind = 'reschedule-request' | 'cancel-by-owner'
@@ -59,7 +60,10 @@ export function AssistantPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, busy, draft])
+  useEffect(() => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    endRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [messages, busy, draft])
 
   const addAssistant = (text: string) => setMessages(current => [...current, { id: crypto.randomUUID(), role: 'assistant', text }])
 
