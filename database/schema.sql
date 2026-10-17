@@ -100,7 +100,10 @@ CREATE TABLE IF NOT EXISTS services (
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  category TEXT NOT NULL CHECK (category IN ('unhas','sobrancelhas','cilios','outros')),
+  category TEXT NOT NULL CHECK (category IN (
+    'unhas','sobrancelhas','cilios','cabelos','terapia_capilar','maquiagem',
+    'depilacao','estetica_facial','estetica_corporal','massagens',
+    'micropigmentacao','bronzeamento','podologia','outros')),
   duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 15 AND 480),
   price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
   active INTEGER NOT NULL DEFAULT 1,

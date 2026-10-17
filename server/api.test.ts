@@ -7,6 +7,10 @@ import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { catalog as serviceTemplates } from './catalog.js';
+
+const selectedServices = (category: string) => serviceTemplates
+  .filter(item => item.category === category).map(item => item.id);
 
 let processHandle: ChildProcessWithoutNullStreams;
 let tempDirectory: string;
@@ -109,6 +113,7 @@ describe('Nayla API', () => {
     const first = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Ana Silva', businessName: 'Ateliê Ana', slug: 'atelie-ana-test',
       email: 'ana@example.test', password: 'SenhaMuitoForte1', specialties: ['unhas'],
+      selectedServices: selectedServices('unhas'),
     }) });
     expect(first.status).toBe(201);
     assert.equal(first.body.sessionToken, undefined);
@@ -116,6 +121,7 @@ describe('Nayla API', () => {
     const second = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Bia Souza', businessName: 'Studio Bia', slug: 'studio-bia-test',
       email: 'bia@example.test', password: 'SenhaMuitoForte2', specialties: ['cilios'],
+      selectedServices: selectedServices('cilios'),
     }) });
     expect(second.status).toBe(201);
     const otherCookie = second.cookie!;
@@ -456,7 +462,7 @@ describe('Nayla API', () => {
       headers: { Origin: 'capacitor://localhost', 'X-Nayla-App': 'mobile' },
       body: JSON.stringify({ ownerName: 'Ana Silva', businessName: 'Novo Ateliê Ana',
         slug: 'atelie-ana-test', email: 'ana@example.test', password: 'SenhaMuitoForte1',
-        specialties: ['sobrancelhas'] }) });
+        specialties: ['sobrancelhas'], selectedServices: selectedServices('sobrancelhas') }) });
     expect(nativeRegister.status).toBe(201);
     assert.match(nativeRegister.body.sessionToken, /^[a-f0-9]{64}$/);
     assert.equal(nativeRegister.cookie, undefined);
@@ -478,7 +484,7 @@ describe('Nayla API', () => {
       const ownerRegistration = await request('/api/auth/register', { method: 'POST',
         body: JSON.stringify({ ownerName: 'Lia Moura', businessName: 'Espaço Lia',
           slug: 'espaco-lia-remarcacao', email: 'lia@example.test',
-          password: 'SenhaMuitoForte3', specialties: ['unhas'] }) });
+          password: 'SenhaMuitoForte3', specialties: ['unhas'], selectedServices: selectedServices('unhas') }) });
       expect(ownerRegistration.status).toBe(201);
       const ownerCookie = ownerRegistration.cookie!;
       const ownerId = ownerRegistration.body.business.id as string;
@@ -645,7 +651,7 @@ describe('Nayla API', () => {
       const otherRegistration = await request('/api/auth/register', { method: 'POST',
         body: JSON.stringify({ ownerName: 'Sol Souza', businessName: 'Estúdio Sol',
           slug: 'studio-sol-isolado', email: 'sol@example.test',
-          password: 'SenhaMuitoForte4', specialties: ['cilios'] }) });
+          password: 'SenhaMuitoForte4', specialties: ['cilios'], selectedServices: selectedServices('cilios') }) });
       expect(otherRegistration.status).toBe(201);
       expect((await request('/api/appointments/today', {}, otherRegistration.cookie)).body.appointments).toHaveLength(0);
       expect((await request('/api/appointments', {}, otherRegistration.cookie)).body).toHaveLength(0);
@@ -667,6 +673,7 @@ describe('Nayla API', () => {
     const ownerRegistration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Laura Martins', businessName: 'Ateliê Laura', slug: 'atelie-laura-analises',
       email: 'laura.analises@example.test', password: 'SenhaAnaliseForte1!', specialties: ['unhas'],
+      selectedServices: selectedServices('unhas'),
     }) });
     expect(ownerRegistration.status).toBe(201);
     const ownerCookie = ownerRegistration.cookie!;
@@ -763,6 +770,7 @@ describe('Nayla API', () => {
     const otherRegistration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Nina Ribeiro', businessName: 'Studio Nina', slug: 'studio-nina-analises',
       email: 'nina.analises@example.test', password: 'SenhaAnaliseForte2!', specialties: ['cilios'],
+      selectedServices: selectedServices('cilios'),
     }) });
     expect(otherRegistration.status).toBe(201);
     const isolated = await request('/api/analytics?period=7', {}, otherRegistration.cookie);

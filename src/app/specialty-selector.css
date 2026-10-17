@@ -1,0 +1,7 @@
+.specialty-picker{min-width:0}
+.specialty-picker .specialty-intro{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 14px}
+.specialty-groups{display:grid;gap:13px}
+.specialty-group h3{font-size:11px;letter-spacing:.025em;color:var(--muted);font-weight:800;margin:0 0 7px}
+.specialty-picker .specialty-options{gap:7px}
+.specialty-picker .specialty-choice{min-height:38px;text-align:left;line-height:1.25}
+.specialty-note{display:block;color:var(--muted);line-height:1.45;margin-top:12px;font-size:11px}

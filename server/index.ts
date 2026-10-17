@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z, ZodError } from 'zod';
-import { catalog } from './catalog.js';
+import { catalog, specialtySchema, specialtyValues } from './catalog.js';
 import { addMinutes, dateAgo, db, fromCents, id, localNow, toCents, validDate } from './db.js';
 import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
   sendBookingChangeNotification, updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
@@ -189,19 +189,42 @@ const password = z.string().min(12, 'Use pelo menos 12 caracteres na senha.').ma
   .refine(value => /[A-Za-z]/.test(value) && /\d/.test(value),
     'Use letras e números na senha.');
 const slug = z.string().min(3).max(45).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-const specialty = z.enum(['unhas', 'sobrancelhas', 'cilios']);
+const specialty = specialtySchema;
 const date = z.string().refine(validDate, 'Data inválida.');
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const money = z.number().finite().min(0).max(1_000_000);
+const customService = z.object({
+  name: z.string().trim().min(2).max(100), category: specialty, price: money,
+  durationMinutes: z.number().int().min(15).max(480),
+});
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/catalog', (_req, res) => res.json({ services: catalog }));
 
 app.post('/api/auth/register', rateLimit(10), async (req, res) => {
   const input = z.object({
     ownerName: z.string().trim().min(2).max(100), businessName: z.string().trim().min(2).max(100),
     slug, email, password, phone: z.string().optional(), remember: z.boolean().default(false),
-    specialties: z.array(specialty).min(1).max(3),
+    specialties: z.array(specialty).min(1).max(specialtyValues.length),
+    selectedServices: z.array(z.string().min(1).max(160)).max(catalog.length),
+    customServices: z.array(customService).max(10).default([]),
   }).parse(req.body);
+  const selectedTemplates = new Set(input.selectedServices);
+  if (selectedTemplates.size !== input.selectedServices.length ||
+    catalog.some(item => selectedTemplates.has(item.id) && !input.specialties.includes(item.category)) ||
+    input.selectedServices.some(serviceId => !catalog.some(item => item.id === serviceId)))
+    throw new ApiError(400, 'Escolha apenas serviços das suas áreas de atuação.');
+  if (input.customServices.some(item => !input.specialties.includes(item.category)))
+    throw new ApiError(400, 'Escolha uma das suas áreas para cada serviço personalizado.');
+  const normalizedName = (name: string) => name.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+  const customNames = input.customServices.map(item => `${item.category}:${normalizedName(item.name)}`);
+  if (new Set(customNames).size !== customNames.length ||
+    input.customServices.some(item => catalog.some(template =>
+      template.category === item.category && normalizedName(template.name) === normalizedName(item.name))))
+    throw new ApiError(400, 'Cada serviço personalizado precisa ter um nome diferente dos serviços da área.');
+  if (!selectedTemplates.size && !input.customServices.length)
+    throw new ApiError(400, 'Escolha pelo menos um serviço que você oferece.');
   if (db.prepare('SELECT 1 FROM businesses WHERE slug=?').get(input.slug)) throw new ApiError(409, 'Este link de agendamento já está em uso.');
   if (db.prepare(`SELECT 1 FROM users WHERE role='owner' AND email=?`).get(input.email)) throw new ApiError(409, 'Este e-mail já está cadastrado.');
   const hash = await bcrypt.hash(input.password, 12);
@@ -211,10 +234,14 @@ app.post('/api/auth/register', rateLimit(10), async (req, res) => {
       .run(businessId, input.slug, input.businessName, input.phone || null, JSON.stringify([...new Set(input.specialties)]));
     db.prepare(`INSERT INTO users(id,business_id,role,name,email,phone,password_hash)
       VALUES(?,?,'owner',?,?,?,?)`).run(userId, businessId, input.ownerName, input.email, input.phone || null, hash);
-    const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents)
-      VALUES(?,?,?,?,?,?)`);
+    const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents,active)
+      VALUES(?,?,?,?,?,?,?)`);
     for (const item of catalog.filter(item => input.specialties.includes(item.category)))
-      addService.run(id(), businessId, item.name, item.category, item.durationMinutes, toCents(item.price));
+      addService.run(id(), businessId, item.name, item.category, item.durationMinutes,
+        toCents(item.price), Number(selectedTemplates.has(item.id)));
+    for (const item of input.customServices)
+      addService.run(id(), businessId, item.name, item.category, item.durationMinutes,
+        toCents(item.price), 1);
   })();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as User;
   const session = createSession(req, res, user, input.remember);
@@ -267,7 +294,7 @@ app.patch('/api/business', owner, (req, res) => {
     description: z.string().trim().max(500).optional(),
     phone: z.string().trim().max(25).optional(),
     address: z.string().trim().max(250).optional(),
-    specialties: z.array(specialty).min(1).max(3).optional(),
+    specialties: z.array(specialty).min(1).max(specialtyValues.length).optional(),
     startTime: time.optional(), endTime: time.optional(),
     workdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
     slotInterval: z.number().int().min(15).max(120).optional(),
@@ -286,14 +313,14 @@ app.patch('/api/business', owner, (req, res) => {
         currentUser(res).business_id);
     db.prepare(`UPDATE services SET active=0 WHERE business_id=? AND category NOT IN (${selected.map(() => '?').join(',')})`)
       .run(currentUser(res).business_id, ...selected);
-    const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents)
-      VALUES(?,?,?,?,?,?)`);
+    const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents,active)
+      VALUES(?,?,?,?,?,?,?)`);
     for (const category of selected.filter(value => !previous.specialties.includes(value))) {
       const exists = db.prepare('SELECT 1 FROM services WHERE business_id=? AND category=? LIMIT 1')
         .get(currentUser(res).business_id, category);
       if (!exists) for (const item of catalog.filter(item => item.category === category))
         addService.run(id(), currentUser(res).business_id, item.name, item.category,
-          item.durationMinutes, toCents(item.price));
+          item.durationMinutes, toCents(item.price), 0);
     }
   }).immediate();
   res.json(businessById(currentUser(res).business_id));

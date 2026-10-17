@@ -13,8 +13,21 @@ export const calendarDay = (value: string) => new Intl.DateTimeFormat('pt-BR', {
 export const calendarMonth = (value: string) => new Intl.DateTimeFormat('pt-BR', { month: 'short', ...brazil }).format(zonedDate(value))
 export const localISODate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
-export const specialties: Record<Specialty, string> = { unhas: 'Unhas', sobrancelhas: 'Sobrancelhas', cilios: 'Cílios' }
-export const serviceCategories: Record<ServiceCategory, string> = { ...specialties, outros: 'Outros' }
+export const specialties: Record<Specialty, string> = {
+  unhas: 'Unhas', sobrancelhas: 'Sobrancelhas', cilios: 'Cílios',
+  cabelos: 'Cabelos', terapia_capilar: 'Terapia capilar', maquiagem: 'Maquiagem',
+  depilacao: 'Depilação', estetica_facial: 'Estética facial',
+  estetica_corporal: 'Estética corporal', massagens: 'Massagens e spa',
+  micropigmentacao: 'Micropigmentação', bronzeamento: 'Bronzeamento',
+  podologia: 'Podologia', outros: 'Outra especialidade',
+}
+export const specialtyGroups: Array<{ title: string; items: Specialty[] }> = [
+  { title: 'Olhar e unhas', items: ['unhas', 'sobrancelhas', 'cilios', 'micropigmentacao'] },
+  { title: 'Cabelos e maquiagem', items: ['cabelos', 'terapia_capilar', 'maquiagem'] },
+  { title: 'Pele, corpo e bem-estar', items: ['depilacao', 'estetica_facial', 'estetica_corporal', 'massagens', 'bronzeamento', 'podologia'] },
+  { title: 'Mais opções', items: ['outros'] },
+]
+export const serviceCategories: Record<ServiceCategory, string> = { ...specialties, outros: 'Outros serviços' }
 export const statusLabels: Record<AppointmentStatus, string> = { pending: 'Pendente', confirmed: 'Confirmado', completed: 'Concluído', cancelled: 'Cancelado', no_show: 'Não compareceu' }
 
 export function Logo({ small = false }: { small?: boolean }) {

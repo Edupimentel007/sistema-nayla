@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
+import { catalog as serviceTemplates } from './catalog.js';
 
 let child: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -40,6 +41,7 @@ async function request(path: string, options: RequestInit = {}, cookie?: string)
 const owner = (name: string, slug: string, email: string, specialty: string) => ({
   ownerName: name, businessName: `${name} Studio`, slug, email,
   password: 'SenhaForte#2026', specialties: [specialty],
+  selectedServices: serviceTemplates.filter(item => item.category === specialty).map(item => item.id),
 });
 
 function futureWorkday() {
@@ -131,6 +133,76 @@ describe('recursos Nayla', () => {
       } }),
     });
     assert.ok(booking.status >= 400 && booking.status < 500);
+  });
+
+  it('shows only the individual services selected by each beauty professional', async () => {
+    const availableTemplates = await request('/api/catalog');
+    assert.equal(availableTemplates.status, 200);
+    assert.ok(availableTemplates.body.services.some((item: any) => item.category === 'estetica_facial'));
+    const chosen = [
+      serviceTemplates.find(item => item.category === 'cabelos')!,
+      serviceTemplates.find(item => item.category === 'maquiagem')!,
+    ];
+    const register = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Dora Vieira', businessName: 'Studio Dora', slug: 'studio-dora-beleza',
+      email: 'dora-beleza@example.test', password: 'SenhaForte#2026',
+      specialties: ['cabelos', 'maquiagem'], selectedServices: chosen.map(item => item.id),
+      customServices: [{ category: 'cabelos', name: 'Tranças', price: 160, durationMinutes: 120 }],
+    }) });
+    assert.equal(register.status, 201);
+    const visible = await request('/api/public/studio-dora-beleza');
+    assert.deepEqual(new Set(visible.body.services.map((item: any) => item.name)),
+      new Set([...chosen.map(item => item.name), 'Tranças']));
+    const all = await request('/api/services', {}, register.cookie);
+    assert.equal(all.status, 200);
+    assert.ok(all.body.length > chosen.length);
+    assert.equal(all.body.filter((item: any) => item.active).length, chosen.length + 1);
+
+    const foreign = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Lena Silva', businessName: 'Studio Lena', slug: 'studio-lena-invalido',
+      email: 'lena-invalido@example.test', password: 'SenhaForte#2026',
+      specialties: ['unhas'], selectedServices: [chosen[0].id],
+    }) });
+    assert.equal(foreign.status, 400);
+
+    const addArea = await request('/api/business', { method: 'PATCH',
+      body: JSON.stringify({ specialties: ['cabelos', 'maquiagem', 'bronzeamento'] }) }, register.cookie);
+    assert.equal(addArea.status, 200);
+    const withNewArea = await request('/api/services', {}, register.cookie);
+    const bronze = withNewArea.body.find((item: any) => item.category === 'bronzeamento');
+    assert.ok(bronze);
+    assert.equal(bronze.active, false);
+    const stillVisible = await request('/api/public/studio-dora-beleza');
+    assert.equal(stillVisible.body.services.length, chosen.length + 1);
+    const activated = await request(`/api/services/${bronze.id}`, { method: 'PATCH',
+      body: JSON.stringify({ active: true }) }, register.cookie);
+    assert.equal(activated.status, 200);
+    const nowVisible = await request('/api/public/studio-dora-beleza');
+    assert.ok(nowVisible.body.services.some((item: any) => item.id === bronze.id));
+
+    const custom = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Tina Rocha', businessName: 'Studio Tina', slug: 'studio-tina-outros',
+      email: 'tina-outros@example.test', password: 'SenhaForte#2026',
+      specialties: ['outros'], selectedServices: [],
+      customServices: [{ category: 'outros', name: 'Atendimento personalizado', price: 100, durationMinutes: 60 }],
+    }) });
+    assert.equal(custom.status, 201);
+    const customPublic = await request('/api/public/studio-tina-outros');
+    assert.equal(customPublic.body.services.length, 1);
+    assert.equal(customPublic.body.services[0].name, 'Atendimento personalizado');
+    const missing = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Vera Lima', businessName: 'Studio Vera', slug: 'studio-vera-sem-servicos',
+      email: 'vera-sem-servicos@example.test', password: 'SenhaForte#2026',
+      specialties: ['outros'], selectedServices: [],
+    }) });
+    assert.equal(missing.status, 400);
+    const wrongCategory = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Mara Costa', businessName: 'Studio Mara', slug: 'studio-mara-sem-outros',
+      email: 'mara-sem-outros@example.test', password: 'SenhaForte#2026',
+      specialties: ['unhas'], selectedServices: [serviceTemplates.find(item => item.category === 'unhas')!.id],
+      customServices: [{ category: 'cabelos', name: 'Especial', price: 50, durationMinutes: 30 }],
+    }) });
+    assert.equal(wrongCategory.status, 400);
   });
 
   it('keeps each uploaded logo with its own business and serves it publicly', async () => {

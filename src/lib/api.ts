@@ -1,7 +1,9 @@
 import { clearNativeSession, isNativeApp, nativeSessionToken, saveNativeSession, type SessionRole } from './nativeSession'
 
-export type Specialty = 'unhas' | 'sobrancelhas' | 'cilios'
-export type ServiceCategory = Specialty | 'outros'
+export type Specialty = 'unhas' | 'sobrancelhas' | 'cilios' | 'cabelos' | 'terapia_capilar'
+  | 'maquiagem' | 'depilacao' | 'estetica_facial' | 'estetica_corporal' | 'massagens'
+  | 'micropigmentacao' | 'bronzeamento' | 'podologia' | 'outros'
+export type ServiceCategory = Specialty
 
 export type Business = {
   id: string
@@ -55,6 +57,8 @@ export type Service = {
   durationMinutes: number
   active: boolean
 }
+export type CatalogService = { id: string; name: string; category: Specialty; durationMinutes: number; price: number }
+export type CustomSignupService = { name: string; category: Specialty; price: number; durationMinutes: number }
 
 export type Client = {
   id: string
@@ -207,7 +211,8 @@ const json = (value: unknown) => JSON.stringify(value)
 const query = (values: Record<string, string>) => new URLSearchParams(values).toString()
 
 export const api = {
-  register: (data: { ownerName: string; businessName: string; slug: string; email: string; password: string; specialties: Specialty[]; remember?: boolean }) =>
+  catalog: () => request<{ services: CatalogService[] }>('/api/catalog'),
+  register: (data: { ownerName: string; businessName: string; slug: string; email: string; password: string; specialties: Specialty[]; selectedServices: string[]; customServices: CustomSignupService[]; remember?: boolean }) =>
     requestSession<Session>('owner', '/api/auth/register', { method: 'POST', body: json(data) }),
   login: (email: string, password: string, remember = false) =>
     requestSession<Session>('owner', '/api/auth/login', { method: 'POST', body: json({ email, password, remember }) }),
@@ -231,6 +236,7 @@ export const api = {
     }),
   me: () => request<Session>('/api/auth/me'),
   subscription: () => request<Subscription>('/api/billing/subscription'),
+  startTrial: () => request<Subscription>('/api/billing/trial', { method: 'POST', body: JSON.stringify({}) }),
   completeOnboarding: () => request<{ onboardingCompleted: boolean }>('/api/billing/onboarding', {
     method: 'PATCH', body: json({ completed: true }),
   }),

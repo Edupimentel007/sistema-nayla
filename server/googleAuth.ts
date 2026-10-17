@@ -3,7 +3,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { db, id, toCents } from './db.js';
-import { catalog } from './catalog.js';
+import { catalog, specialtySchema, specialtyValues } from './catalog.js';
 
 type Row = Record<string, any>;
 type Role = 'owner' | 'client';
@@ -223,13 +223,36 @@ export function mountGoogleAuth(app: Express, options: Options) {
     const strongPassword = z.string().min(12).max(100)
       .refine(value => /[A-Za-z]/.test(value) && /\d/.test(value));
     const common = z.object({ password: strongPassword });
+    const customService = z.object({ name: z.string().trim().min(2).max(100), category: specialtySchema,
+      price: z.number().finite().min(0).max(1_000_000), durationMinutes: z.number().int().min(15).max(480) });
     const details = role === 'owner'
       ? common.extend({ ownerName: z.string().trim().min(2).max(100),
           businessName: z.string().trim().min(2).max(100),
           slug: z.string().min(3).max(45).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-          specialties: z.array(z.enum(['unhas', 'sobrancelhas', 'cilios'])).min(1).max(3) }).parse(req.body)
+          specialties: z.array(specialtySchema).min(1).max(specialtyValues.length),
+          selectedServices: z.array(z.string().min(1).max(160)).max(catalog.length),
+          customServices: z.array(customService).max(10).default([]) }).parse(req.body)
       : common.extend({ name: z.string().trim().min(2).max(100),
           cpf: z.string().refine(validCpf, 'CPF inválido.'), phone: z.string().regex(/^\d{10,13}$/) }).parse(req.body);
+    if (role === 'owner') {
+      const ownerDetails = details as Extract<typeof details, { businessName: string }>;
+      const selectedTemplates = new Set(ownerDetails.selectedServices);
+      if (selectedTemplates.size !== ownerDetails.selectedServices.length ||
+        catalog.some(item => selectedTemplates.has(item.id) && !ownerDetails.specialties.includes(item.category)) ||
+        ownerDetails.selectedServices.some(serviceId => !catalog.some(item => item.id === serviceId)))
+        throw new GoogleAuthError(400, 'Escolha apenas serviços das suas áreas de atuação.');
+      if (ownerDetails.customServices.some(item => !ownerDetails.specialties.includes(item.category)))
+        throw new GoogleAuthError(400, 'Escolha uma das suas áreas para cada serviço personalizado.');
+      const normalizedName = (name: string) => name.normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+      const customNames = ownerDetails.customServices.map(item => `${item.category}:${normalizedName(item.name)}`);
+      if (new Set(customNames).size !== customNames.length ||
+        ownerDetails.customServices.some(item => catalog.some(template =>
+          template.category === item.category && normalizedName(template.name) === normalizedName(item.name))))
+        throw new GoogleAuthError(400, 'Cada serviço personalizado precisa ter um nome diferente dos serviços da área.');
+      if (!selectedTemplates.size && !ownerDetails.customServices.length)
+        throw new GoogleAuthError(400, 'Escolha pelo menos um serviço que você oferece.');
+    }
     const passwordHash = await bcrypt.hash(details.password, 12);
     const userId = id();
     db.transaction(() => {
@@ -245,10 +268,15 @@ export function mountGoogleAuth(app: Express, options: Options) {
         db.prepare(`INSERT INTO users(id,business_id,role,name,email,password_hash,google_subject)
           VALUES(?,?,'owner',?,?,?,?)`).run(userId, businessId, ownerDetails.ownerName,
             row.email, passwordHash, row.google_subject);
-        const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents)
-          VALUES(?,?,?,?,?,?)`);
+        const selectedTemplates = new Set(ownerDetails.selectedServices);
+        const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents,active)
+          VALUES(?,?,?,?,?,?,?)`);
         for (const item of catalog.filter(item => ownerDetails.specialties.includes(item.category)))
-          addService.run(id(), businessId, item.name, item.category, item.durationMinutes, toCents(item.price));
+          addService.run(id(), businessId, item.name, item.category, item.durationMinutes,
+            toCents(item.price), Number(selectedTemplates.has(item.id)));
+        for (const item of ownerDetails.customServices)
+          addService.run(id(), businessId, item.name, item.category, item.durationMinutes,
+            toCents(item.price), 1);
       } else {
         const clientDetails = details as Extract<typeof details, { cpf: string }>;
         if (db.prepare(`SELECT 1 FROM users WHERE role='client' AND business_id=?

@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import { catalog as serviceTemplates } from './catalog.js';
 
 let mock: Server;
 let app: ChildProcessWithoutNullStreams;
@@ -56,6 +57,7 @@ async function register(slug: string, email: string, password = 'SenhaMuitoForte
   const result = await request('/api/auth/register', 'POST', {
     ownerName: 'Maria Lima', businessName: 'Studio Maria', slug,
     email, password, specialties: ['unhas'],
+    selectedServices: serviceTemplates.filter(item => item.category === 'unhas').map(item => item.id),
   });
   assert.equal(result.status, 201);
   return result.cookie!;
@@ -134,8 +136,8 @@ describe('cobrança Nayla via Mercado Pago', () => {
       const cookie = await register('studio-maria-billing', 'maria.billing@example.test');
       const initial = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
       assert.equal(initial.status, 'none');
-      assert.equal(initial.trialRequiresCard, true);
-      assert.equal(initial.trialAvailable, false);
+      assert.equal(initial.trialRequiresCard, false);
+      assert.equal(initial.trialAvailable, true);
       assert.equal(initial.trialEndsAt, null);
       assert.equal(initial.accessGranted, false);
       assert.equal((await request('/api/dashboard', 'GET', undefined, cookie)).status, 402);
@@ -173,6 +175,7 @@ describe('cobrança Nayla via Mercado Pago', () => {
       assert.equal(paid.status, 'active');
       assert.equal(paid.plan, 'monthly');
       assert.equal(paid.accessGranted, true);
+      assert.equal((await request('/api/billing/trial', 'POST', {}, cookie)).status, 409);
       assert.equal((await request('/api/dashboard', 'GET', undefined, cookie)).status, 200);
       assert.equal((await webhook(payment, true, requestId)).status, 200);
       assert.equal((await request('/api/billing/subscription', 'GET', undefined, cookie)).body.currentPeriodEnd,
@@ -248,10 +251,26 @@ describe('cobrança Nayla via Mercado Pago', () => {
     assert.equal(state.accessGranted, true);
   });
 
-  it('requires the verified-card marker for the 30-day trial state', { timeout: 15_000 }, async () => {
-    const cookie = await register('trial-card-billing', 'trial.billing@example.test', 'SenhaMuitoForte7');
+  it('starts a 30-day trial without a card once and never extends it', { timeout: 15_000 }, async () => {
+    assert.equal((await request('/api/billing/trial', 'POST', {})).status, 401);
+    const cookie = await register('trial-owner-billing', 'trial.billing@example.test', 'SenhaMuitoForte7');
+    const otherCookie = await register('other-trial-owner-billing', 'other.trial.billing@example.test', 'SenhaMuitoForte8');
     const initial = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
     assert.equal(initial.trialEndsAt, null);
+    assert.equal(initial.trialAvailable, true);
+    assert.equal((await request('/api/billing/trial', 'POST', { extra: true }, cookie)).status, 400);
+    const startedTrial = await request('/api/billing/trial', 'POST', {}, cookie);
+    assert.equal(startedTrial.status, 200);
+    assert.equal(startedTrial.body.accessGranted, true);
+    assert.equal(startedTrial.body.trialDaysRemaining, 30);
+    assert.equal(startedTrial.body.trialAvailable, false);
+    assert.equal((await request('/api/dashboard', 'GET', undefined, cookie)).status, 200);
+    const repeated = await request('/api/billing/trial', 'POST', {}, cookie);
+    assert.equal(repeated.status, 200);
+    assert.equal(repeated.body.trialEndsAt, startedTrial.body.trialEndsAt);
+    const otherState = (await request('/api/billing/subscription', 'GET', undefined, otherCookie)).body;
+    assert.equal(otherState.trialEndsAt, null);
+    assert.equal(otherState.accessGranted, false);
     const database = new Database(join(directory, 'nayla.sqlite'));
     try {
       const business = database.prepare("SELECT business_id FROM users WHERE email='trial.billing@example.test'")
@@ -259,19 +278,19 @@ describe('cobrança Nayla via Mercado Pago', () => {
       const started = Date.now() - 29 * 24 * 60 * 60_000;
       database.prepare('UPDATE business_billing SET trial_started_at=? WHERE business_id=?')
         .run(started, business.business_id);
-      const unverified = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
-      assert.equal(unverified.trialEndsAt, null);
-      assert.equal(unverified.accessGranted, false);
-      database.prepare('UPDATE business_billing SET trial_card_verified_at=? WHERE business_id=?')
-        .run(started, business.business_id);
-      const verified = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
-      assert.equal(verified.accessGranted, true);
-      assert.equal(verified.trialDaysRemaining, 1);
-      database.prepare('UPDATE business_billing SET trial_started_at=?,trial_card_verified_at=? WHERE business_id=?')
-        .run(Date.now() - 31 * 24 * 60 * 60_000, Date.now() - 31 * 24 * 60 * 60_000, business.business_id);
+      const nearEnd = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
+      assert.equal(nearEnd.accessGranted, true);
+      assert.equal(nearEnd.trialDaysRemaining, 1);
+      database.prepare('UPDATE business_billing SET trial_started_at=? WHERE business_id=?')
+        .run(Date.now() - 31 * 24 * 60 * 60_000, business.business_id);
       const expired = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
       assert.equal(expired.accessGranted, false);
       assert.equal(expired.trialDaysRemaining, 0);
+      assert.equal((await request('/api/dashboard', 'GET', undefined, cookie)).status, 402);
+      const afterExpiry = await request('/api/billing/trial', 'POST', {}, cookie);
+      assert.equal(afterExpiry.status, 200);
+      assert.equal(afterExpiry.body.accessGranted, false);
+      assert.equal(afterExpiry.body.trialEndsAt, expired.trialEndsAt);
     } finally { database.close(); }
   });
 });

@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, Check, Moon, ShieldCheck, Sun } from 'lucide-react'
-import { api, type GoogleCompletion, type Specialty } from '../../lib/api'
+import { api, type CatalogService, type CustomSignupService, type GoogleCompletion, type Specialty } from '../../lib/api'
 import { clearGoogleAppNonce, currentGoogleAppNonce, readGoogleErrorFromUrl, readGoogleTicketFromUrl } from '../../lib/googleAuth'
 import { GoogleSignInButton } from '../GoogleSignInButton'
+import { SignupServiceSelector, type CustomServiceDraft } from '../SignupServiceSelector'
+import { SpecialtySelector } from '../SpecialtySelector'
 import { useAuth, useTheme } from '../contexts'
-import { Logo, specialties } from '../shared'
+import { Logo } from '../shared'
 
 type GooglePending = { ticket: string; email: string; name: string; passwordLinkRequired: boolean }
 const strongPassword = (value: string) => value.length >= 12 && /[A-Za-z]/.test(value) && /\d/.test(value)
@@ -101,11 +103,43 @@ export function OwnerRegisterPage() {
   const [email, setEmail] = useState(fromGoogle?.email || '')
   const [password, setPassword] = useState('')
   const [selected, setSelected] = useState<Specialty[]>([])
+  const [catalog, setCatalog] = useState<CatalogService[]>([])
+  const [selectedServices, setSelectedServices] = useState<string[]>([])
+  const [customServices, setCustomServices] = useState<CustomServiceDraft[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  const [catalogRetry, setCatalogRetry] = useState(0)
   const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const toggleSpecialty = (item: Specialty) => setSelected(current => current.includes(item)
-    ? current.filter(value => value !== item) : [...current, item])
+  useEffect(() => {
+    let live = true
+    setCatalogLoading(true)
+    setCatalogError('')
+    api.catalog().then(result => { if (live) setCatalog(result.services) })
+      .catch(reason => { if (live) setCatalogError(reason instanceof Error ? reason.message : 'Não foi possível carregar o catálogo.') })
+      .finally(() => { if (live) setCatalogLoading(false) })
+    return () => { live = false }
+  }, [catalogRetry])
+  const toggleSpecialty = (item: Specialty) => {
+    if (selected.includes(item)) {
+      setSelected(current => current.filter(value => value !== item))
+      setSelectedServices(current => current.filter(serviceId => catalog.find(service => service.id === serviceId)?.category !== item))
+      setCustomServices(current => current.filter(service => service.category !== item))
+    } else {
+      setSelected(current => [...current, item])
+      if (item === 'outros') setCustomServices(current => current.length >= 10 ? current :
+        [...current, { name: '', category: item, price: '', durationMinutes: '60' }])
+    }
+  }
+  const toggleService = (id: string) => setSelectedServices(current => current.includes(id)
+    ? current.filter(value => value !== id) : [...current, id])
+  const addCustomService = () => setCustomServices(current => current.length >= 10 ? current :
+    [...current, { name: '', category: selected[0] ?? 'outros', price: '', durationMinutes: '60' }])
+  const updateCustomService = (index: number, patch: Partial<CustomServiceDraft>) =>
+    setCustomServices(current => current.map((service, position) => position === index ? { ...service, ...patch } : service))
+  const removeCustomService = (index: number) =>
+    setCustomServices(current => current.filter((_, position) => position !== index))
   const applyGoogle = (result: GoogleCompletion) => {
     if ('user' in result) { clearGoogleAppNonce(); setSession(result); navigate('/app', { replace: true }); return }
     const next = { ticket: result.googleTicket || '', email: result.email,
@@ -116,11 +150,33 @@ export function OwnerRegisterPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('')
     if (!selected.length) { setError('Selecione pelo menos uma área de atuação.'); return }
+    const filledCustom = customServices.filter(item => item.name.trim() || item.price.trim())
+    const preparedCustom: CustomSignupService[] = []
+    for (const item of filledCustom) {
+      const name = item.name.trim()
+      const price = Number(item.price)
+      const durationMinutes = Number(item.durationMinutes)
+      if (name.length < 2 || !item.price.trim() || !Number.isFinite(price) || price < 0 || price > 1_000_000 ||
+        !Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 480 || !selected.includes(item.category)) {
+        setError('Complete nome, área, preço e duração dos serviços adicionados.'); return
+      }
+      preparedCustom.push({ name, category: item.category, price, durationMinutes })
+    }
+    const serviceKey = (name: string, category: Specialty) => `${category}:${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR')}`
+    const customKeys = preparedCustom.map(item => serviceKey(item.name, item.category))
+    if (new Set(customKeys).size !== customKeys.length || preparedCustom.some(item =>
+      catalog.some(template => serviceKey(template.name, template.category) === serviceKey(item.name, item.category)))) {
+      setError('Há serviços com o mesmo nome nessa área. Use um nome diferente.'); return
+    }
+    if (selected.some(item => item !== 'outros') && catalogLoading && !preparedCustom.length) { setError('Aguarde o catálogo de serviços carregar.'); return }
+    if (selected.some(item => item !== 'outros') && catalogError && !preparedCustom.length) { setError('Carregue as opções de serviços antes de continuar.'); return }
+    if (!selectedServices.length && !preparedCustom.length) { setError('Escolha ou adicione pelo menos um serviço que você oferece.'); return }
     if (!strongPassword(password)) { setError('Crie uma senha com pelo menos 12 caracteres, incluindo letras e números.'); return }
     setBusy(true)
     try {
       const details = { ownerName: ownerName.trim(), businessName: businessName.trim(),
-        slug: slugify(slug), email: email.trim(), password, specialties: selected, remember }
+        slug: slugify(slug), email: email.trim(), password, specialties: selected,
+        selectedServices, customServices: preparedCustom, remember }
       const session = google
         ? await api.googleRegister('owner', google.ticket, details, currentGoogleAppNonce())
         : await api.register(details)
@@ -128,7 +184,8 @@ export function OwnerRegisterPage() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar sua conta.') }
     finally { setBusy(false) }
   }
-  return <AuthLayout title="Crie seu espaço" subtitle="Comece com seus dados, escolha sua área e personalize os serviços depois.">
+  return <AuthLayout title="Crie seu espaço" subtitle="Informe seus dados e escolha as áreas e serviços que quer oferecer.">
+    <div className="registration-trial"><span>SEU PRIMEIRO MÊS NA NAYLA</span><strong>30 dias grátis para testar</strong><p>Comece sem cartão. Após o teste, escolha um plano para continuar. Nenhuma cobrança será feita automaticamente.</p></div>
     {google ? <p className="form-success"><Check size={16} /> Google confirmado para {google.email}. Complete seu espaço e escolha uma senha de recuperação.</p> : null}
     <form onSubmit={submit} className="form-stack">
       <div className="form-row"><label>Seu nome<input value={ownerName} onChange={event => setOwnerName(event.target.value)}
@@ -143,12 +200,12 @@ export function OwnerRegisterPage() {
       <label>Senha<input type="password" value={password} onChange={event => setPassword(event.target.value)}
         placeholder="12 ou mais caracteres" autoComplete="new-password" minLength={12} required />
         <small className="auth-help">Use 12 ou mais caracteres, com letras e números. Evite nomes, datas e senhas repetidas.</small></label>
-      <fieldset className="specialty-field"><legend>Em quais áreas você atua?</legend>
-        <div className="specialty-options">{(Object.keys(specialties) as Specialty[]).map(item =>
-          <button key={item} type="button" className={`specialty-choice ${selected.includes(item) ? 'selected' : ''}`}
-            aria-pressed={selected.includes(item)} onClick={() => toggleSpecialty(item)}>
-            {selected.includes(item) ? <Check size={15} /> : <span className="choice-circle" />}{specialties[item]}
-          </button>)}</div><small className="auth-help">Você pode ajustar as áreas e os serviços nas configurações.</small></fieldset>
+      <SpecialtySelector selected={selected} onToggle={toggleSpecialty}
+        hint="Você pode mudar suas áreas nas configurações e personalizar cada serviço e preço no seu catálogo." />
+      <SignupServiceSelector areas={selected} services={catalog} selected={selectedServices}
+        onToggle={toggleService} loading={catalogLoading} error={catalogError}
+        onRetry={() => setCatalogRetry(value => value + 1)} customServices={customServices}
+        onAddCustom={addCustomService} onUpdateCustom={updateCustomService} onRemoveCustom={removeCustomService} />
       {!google ? <><label className="remember-choice"><input type="checkbox" checked={remember}
         onChange={event => setRemember(event.target.checked)} /> Manter conectado neste dispositivo</label>
         <p className="auth-help">O acesso salvo expira em até 7 dias. Depois, você entra novamente para proteger seus dados.</p></> : null}

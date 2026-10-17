@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
+import { catalog as serviceTemplates } from './catalog.js';
 
 let child: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -91,7 +92,8 @@ describe('Google OAuth entry', () => {
   it('scopes client login to an existing business and binds native return to app nonce', async () => {
     const owner = await post('/api/auth/register', { ownerName: 'Maria Silva', businessName: 'Studio Maria',
       slug: 'studio-maria-google', email: 'maria-google@example.test',
-      password: 'SenhaForte#2026', specialties: ['unhas'] });
+      password: 'SenhaForte#2026', specialties: ['unhas'],
+      selectedServices: serviceTemplates.filter(item => item.category === 'unhas').map(item => item.id) });
     assert.equal(owner.status, 201);
     const unknown = await post('/api/auth/google/start', { role: 'client', slug: 'nao-existe', remember: true });
     assert.equal(unknown.status, 404);
@@ -126,11 +128,26 @@ describe('Google OAuth entry', () => {
       { role: 'owner', ticket: ownerTicket }, { Cookie: ownerStart.cookie });
     assert.equal(ownerPending.status, 200);
     assert.equal(ownerPending.body.registrationRequired, true);
+    const invalidArea = await post('/api/auth/google/register', { role: 'owner', ticket: ownerTicket,
+      ownerName: 'Nina Costa', businessName: 'Espaço Nina', slug: 'espaco-nina-google',
+      specialties: ['cilios'], selectedServices: [],
+      customServices: [{ category: 'unhas', name: 'Manicure especial', price: 40, durationMinutes: 60 }],
+      password: 'SenhaForte#2026' }, { Cookie: ownerStart.cookie });
+    assert.equal(invalidArea.status, 400);
     const ownerRegister = await post('/api/auth/google/register', { role: 'owner', ticket: ownerTicket,
       ownerName: 'Nina Costa', businessName: 'Espaço Nina', slug: 'espaco-nina-google',
-      specialties: ['cilios'], password: 'SenhaForte#2026' }, { Cookie: ownerStart.cookie });
+      specialties: ['cilios'],
+      selectedServices: serviceTemplates.filter(item => item.category === 'cilios').slice(0, 1).map(item => item.id),
+      customServices: [{ category: 'cilios', name: 'Efeito delineado', price: 180, durationMinutes: 120 }],
+      password: 'SenhaForte#2026' }, { Cookie: ownerStart.cookie });
     assert.equal(ownerRegister.status, 201);
     assert.equal(ownerRegister.body.business.slug, 'espaco-nina-google');
+    const ownerServices = await fetch(`${baseUrl}/api/services`, { headers: { Cookie: ownerRegister.cookie } });
+    assert.equal(ownerServices.status, 200);
+    const registeredServices = await ownerServices.json() as Array<{ name: string; category: string; active: boolean }>;
+    assert.equal(registeredServices.filter(item => item.category === 'cilios' && item.active).length, 2);
+    assert.ok(registeredServices.some(item => item.name === 'Efeito delineado' && item.active));
+    assert.ok(registeredServices.some(item => item.category === 'cilios' && !item.active));
     const ownerMe = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: ownerRegister.cookie } });
     assert.equal(ownerMe.status, 200);
     const consumed = await post('/api/auth/google/complete',

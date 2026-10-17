@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { specialtyValues } from './catalog.js';
 
 const defaultPath = resolve(process.cwd(), 'database', 'nayla.sqlite');
 const databasePath = resolve(process.env.DATABASE_PATH || defaultPath);
@@ -16,6 +17,37 @@ db.pragma('busy_timeout = 5000');
 
 const schemaPath = fileURLToPath(new URL('../database/schema.sql', import.meta.url));
 db.exec(readFileSync(schemaPath, 'utf8'));
+// SQLite cannot widen an existing CHECK constraint in place. Preserve service
+// IDs so historical appointments keep pointing at the same records.
+const servicesSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='services'")
+  .get() as { sql: string } | undefined;
+if (servicesSql && !specialtyValues.every(value => servicesSql.sql.includes(`'${value}'`))) {
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE services_new (
+        id TEXT PRIMARY KEY,
+        business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL CHECK (category IN (${specialtyValues.map(value => `'${value}'`).join(',')})),
+        duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 15 AND 480),
+        price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO services_new(id,business_id,name,description,category,duration_minutes,price_cents,active,created_at)
+        SELECT id,business_id,name,description,category,duration_minutes,price_cents,active,created_at FROM services;
+      DROP TABLE services;
+      ALTER TABLE services_new RENAME TO services;
+      CREATE INDEX services_business ON services(business_id,active);`);
+      if ((db.pragma('foreign_key_check') as unknown[]).length)
+        throw new Error('Service category migration failed referential integrity check.');
+    }).immediate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
 for (const [table, column, definition] of [
   ['businesses', 'description', "TEXT NOT NULL DEFAULT ''"],
   ['users', 'notes', "TEXT NOT NULL DEFAULT ''"],

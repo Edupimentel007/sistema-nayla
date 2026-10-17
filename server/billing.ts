@@ -106,9 +106,9 @@ function billingState(id: string) {
   const latest = db.prepare(`SELECT * FROM billing_checkouts
     WHERE business_id=? AND status IN ('initiating','pending') AND created_at_ms>?
     ORDER BY created_at_ms DESC LIMIT 1`).get(id, now - 60 * 60_000) as CheckoutRow | undefined;
-  // A 30-day trial starts only after a provider-verified card authorization. No current
-  // Checkout Pro payment is treated as a free card verification.
-  const trialEndsAt = state.trial_card_verified_at && state.trial_started_at ?
+  // The trial begins only when its owner explicitly starts it. The stored timestamp is
+  // immutable so neither a repeated request nor a new session can extend the offer.
+  const trialEndsAt = state.trial_started_at ?
     new Date(state.trial_started_at + trialMs).toISOString() : null;
   const trialActive = Boolean(trialEndsAt && Date.parse(trialEndsAt) > now);
   const paidActive = state.status === 'active' && Boolean(state.current_period_end &&
@@ -118,15 +118,20 @@ function billingState(id: string) {
     onboardingCompleted: Boolean(state.onboarding_completed),
     currentPeriodEnd: state.current_period_end, trialEndsAt,
     trialDaysRemaining: trialEndsAt ? Math.max(0, Math.ceil((Date.parse(trialEndsAt) - now) / (24 * 60 * 60_000))) : 0,
-    trialRequiresCard: true, trialAvailable: false,
+    trialRequiresCard: false,
+    trialAvailable: !state.trial_started_at && !state.last_paid_checkout_id &&
+      ['none', 'pending'].includes(state.status),
     accessGranted: (process.env.NODE_ENV !== 'production' && !configured) ||
       trialActive || paidActive, providerConfigured: configured,
     checkoutUrl: latest?.provider_checkout_url || undefined };
 }
 export function billingAccessForBusiness(id: string) { return billingState(id).accessGranted; }
 export function requireBillingAccess(_req: Request, res: Response, next: NextFunction) {
-  if (billingAccessForBusiness(businessId(res))) return next();
-  return res.status(402).json({ error: 'Seu teste gratuito terminou. Escolha um plano para continuar.' });
+  const state = billingState(businessId(res));
+  if (state.accessGranted) return next();
+  return res.status(402).json({ error: state.trialAvailable
+    ? 'Comece seus 30 dias grátis para usar o painel.'
+    : 'Seu teste gratuito terminou. Escolha um plano para continuar.' });
 }
 
 function validDocument(input: string | undefined) {
@@ -238,6 +243,20 @@ function signedPaymentId(req: Request) {
 export const billingRouter = Router();
 export const billingWebhookRouter = Router();
 billingRouter.get('/subscription', (_req, res) => res.json(billingState(businessId(res))));
+billingRouter.post('/trial', (req, res) => {
+  if (!z.object({}).strict().safeParse(req.body).success)
+    return res.status(400).json({ error: 'Solicitação inválida.' });
+  const id = businessId(res);
+  const state = ensureBillingRow(id);
+  if (!state.trial_started_at) {
+    if (state.last_paid_checkout_id || !['none', 'pending'].includes(state.status))
+      return res.status(409).json({ error: 'O teste gratuito está disponível apenas para novas contas.' });
+    db.prepare(`UPDATE business_billing SET trial_started_at=?,updated_at=CURRENT_TIMESTAMP
+      WHERE business_id=? AND trial_started_at IS NULL AND last_paid_checkout_id IS NULL
+      AND status IN ('none','pending')`).run(Date.now(), id);
+  }
+  return res.json(billingState(id));
+});
 billingRouter.patch('/onboarding', (req, res) => {
   if (req.body?.completed !== true || Object.keys(req.body).length !== 1)
     return res.status(400).json({ error: 'Confirmação inválida.' });

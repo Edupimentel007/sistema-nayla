@@ -64,6 +64,12 @@ p { line-height: 1.58; }
 /* Public first impression: typography and product detail provide the visual interest. */
 .public-site { background: var(--surface); }
 .public-header { height: 76px; border-bottom: 1px solid var(--border); }
+.trial-spotlight { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px max(30px, calc((100vw - 1180px) / 2)); background: #563943; color: #fff8f8; }
+.trial-spotlight > div { display: flex; align-items: center; gap: 18px; }
+.trial-spotlight strong { flex: none; font-family: Georgia, 'Times New Roman', serif; font-size: 23px; font-weight: 400; }
+.trial-spotlight span { color: #f3e3e9; font-size: 12px; line-height: 1.5; }
+.trial-spotlight a { display: inline-flex; align-items: center; gap: 6px; flex: none; color: #fff; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.trial-spotlight a:hover { color: #fbd3e1; }
 .header-login { font-size: 13px; font-weight: 700; }
 .hero { min-height: 590px; padding-block: 80px; gap: 64px; }
 .hero::before, .art-orbit { display: none; }
@@ -322,6 +328,8 @@ p { line-height: 1.58; }
 @media (max-width: 820px) {
   .app-shell { display: block; }
   .sidebar { width: 262px; }
+  .trial-spotlight { padding-inline: 24px; }
+  .trial-spotlight > div { gap: 10px; }
   .hero { gap: 0; }
   .auth-card { padding: 31px; }
   .booking-layout { grid-template-columns: 1fr; }
@@ -330,6 +338,9 @@ p { line-height: 1.58; }
 
 @media (max-width: 650px) {
   .public-header, .booking-header { height: 66px; }
+  .trial-spotlight { align-items: flex-start; flex-direction: column; gap: 8px; padding: 17px 21px; }
+  .trial-spotlight > div { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .trial-spotlight strong { font-size: 21px; }
   .hero { padding: 48px 20px 35px; }
   .hero-copy h1 { font-size: clamp(40px, 10vw, 50px); }
   .hero-art { height: 340px; transform: none; margin: 20px 0 0; }

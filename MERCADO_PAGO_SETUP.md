@@ -1,6 +1,6 @@
 # Como conectar o Mercado Pago à Nayla
 
-Este guia é para a **conta que recebe as assinaturas da Nayla**. Cada profissional conecta separadamente o próprio WhatsApp; ela não precisa conectar a conta Mercado Pago dela para pagar a Nayla.
+Este guia é para a **conta que recebe os pagamentos dos planos da Nayla**. Cada profissional conecta separadamente o próprio WhatsApp; ela não precisa conectar a conta Mercado Pago dela para pagar a Nayla.
 
 ## 1. Prepare um endereço público seguro
 
@@ -38,18 +38,14 @@ Configure em sua conta Mercado Pago o **parcelamento sem acréscimo pago pelo ve
 
 ## 5. Teste antes de cobrar de verdade
 
-Use credenciais e contas de teste. Com o servidor público HTTPS funcionando, crie uma conta profissional fictícia na Nayla, inicie um checkout de cartão e um Pix, teste pagamento aprovado, pendente e recusado, e confirme que só o **aprovado** libera o painel. Teste também repetição do webhook, cancelamento/estorno e ausência de credenciais. Depois troque para credenciais de produção e faça uma compra real de valor controlado para validar o fluxo completo.
+Use credenciais e contas de teste. Com o servidor público HTTPS funcionando, crie uma conta profissional fictícia na Nayla, inicie um checkout de cartão e um Pix, teste pagamento aprovado, pendente e recusado, e confirme que só o **aprovado** libera o plano pago. A [documentação de notificações do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/payment-notifications) informa que pagamentos com credenciais de teste não geram notificações de webhook; use **Simular** em Webhooks para conferir a entrega e faça depois uma compra real controlada em produção para validar o fluxo completo. Teste também repetição do webhook, cancelamento/estorno e ausência de credenciais.
 
-## 6. Solicite a validação do cartão sem cobrança para o teste de 30 dias
+## 6. Teste grátis sem cartão
 
-O teste pedido para a Nayla exige **30 dias gratuitos e um cartão válido no início**, enquanto o anual é **uma compra única de R$ 420 em 12 parcelas na fatura**. O Checkout Pro disponível hoje cobra ao concluir o pagamento; ele não serve para validar o cartão sem cobrar. A solução [Pagamentos Automáticos (Orders API)](https://www.mercadopago.com.br/developers/pt/docs/automatic-payments-orders/overview) documenta [registro de cartão para pagamentos futuros com validação automática](https://www.mercadopago.com.br/developers/pt/docs/automatic-payments-orders/register-future-payment), mas o Mercado Pago exige **autorização da equipe Comercial** para usá-la.
+O primeiro mês de teste agora é **30 dias grátis, sem cartão**. Após criar a conta, a profissional inicia o prazo pelo botão **Começar meus 30 dias grátis** na tela de boas-vindas. O prazo fica registrado no servidor e não pode ser reiniciado. A Nayla não cobra automaticamente quando ele termina: a profissional escolhe então se quer contratar o mensal ou o anual. Durante o teste, o painel e o link de agendamento ficam disponíveis; ao fim, o acesso depende de um plano pago confirmado.
 
-Abra um chamado no suporte/comercial da sua conta Mercado Pago e envie esta descrição (sem nenhum token):
-
-> Estou integrando um SaaS chamado Nayla. Preciso validar e registrar o cartão de crédito da assinante sem cobrança inicial para liberar 30 dias de teste. Ao fim do teste, a assinante poderá concluir uma compra única anual de R$ 420 parcelada em 12x de R$ 35 sem juros no Checkout Pro. Solicito habilitação de Pagamentos Automáticos via Orders API e confirmação de quais credenciais, produtos e webhooks são necessários para o registro de cartão sem pagamento inicial.
-
-Quando o Mercado Pago aprovar esse produto, a Nayla ainda precisará integrar e testar a validação antes de liberar o teste grátis. **A versão atual não inicia o prazo de teste no cadastro**, pois isso permitiria acesso sem o cartão exigido. O checkout dos planos pagos continua separado e só libera acesso após pagamento confirmado.
+O teste não exige configuração do Mercado Pago. Para os planos pagos, siga os passos 1 a 5. O anual continua sendo **uma compra única de R$ 420**, com opção de até **12x de R$ 35 sem juros** depois de ativar o parcelamento sem acréscimo em sua conta recebedora.
 
 ## O que me informar para a próxima etapa
 
-Informe apenas: (1) se a aplicação foi criada, (2) se o domínio HTTPS está publicado, (3) se o webhook recebeu um evento de teste, (4) se as 12 parcelas sem juros foram ativadas e (5) se o Mercado Pago aprovou o uso de Pagamentos Automáticos. **Não envie Access Token, assinatura secreta, número de cartão, CVV nem dados bancários no chat.**
+Informe apenas: (1) se a aplicação foi criada, (2) se o domínio HTTPS está publicado, (3) se o webhook recebeu um evento simulado e (4) se as 12 parcelas sem juros foram ativadas. **Não envie Access Token, assinatura secreta, número de cartão, CVV nem dados bancários no chat.**
