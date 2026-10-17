@@ -72,7 +72,9 @@ Para regenerar os ícones do app a partir de `assets/brand/nayla-icon-source.png
 
 ### Assistente com IA
 
-Defina `OPENAI_API_KEY` e, se desejar, `OPENAI_MODEL` no `.env`. As consultas estruturadas à agenda e ao financeiro funcionam sem a chave; a chave habilita respostas em linguagem natural para perguntas adicionais. A API calcula os dados autorizados antes de enviá-los ao modelo e limita o contexto ao negócio da usuária autenticada.
+Defina `OPENAI_API_KEY` no `.env` do **servidor** e, se desejar, `OPENAI_MODEL` para ativar a conversa com modelo de IA. Reinicie a API depois de alterar o arquivo. Sem uma chave válida, a Nayla oferece consultas locais sobre agenda, financeiro, clientes e serviços, além de orientações básicas do app; a tela informa que a IA conversacional está indisponível. Uma chave vazia, inválida ou uma falha do provedor não produz respostas abertas equivalentes a um chat de IA. Nunca coloque a chave no frontend, app mobile ou repositório.
+
+As perguntas são respondidas com o contexto atualizado do negócio autenticado. A API limita o histórico enviado pelo chat a oito mensagens, sem guardar essa conversa no banco. Dados de outra profissional não entram no contexto. Fatos sobre faturamento, clientes e agenda vêm apenas do banco; conselhos gerais da área de atuação são separados desses fatos. Alterações de agendamento continuam exigindo revisão e confirmação pela profissional.
 
 ### Entrada com Google e segurança da sessão
 

@@ -1,25 +1,25 @@
 .inbox-popover-anchor { position: relative; }
 .inbox-bell { position: relative; }
 .inbox-bell > span { position: absolute; top: -5px; right: -7px; min-width: 17px; height: 17px; padding: 0 3px; border-radius: 10px; display: grid; place-items: center; background: #9c456b; color: #fff; font-size: 10px; font-weight: 750; box-shadow: 0 0 0 2px var(--surface, #fff); }
-.inbox-popover { position: absolute; z-index: 100; right: -42px; top: calc(100% + 12px); width: min(390px, calc(100vw - 24px)); max-height: min(650px, calc(100vh - 90px)); overflow: auto; padding: 18px; background: var(--surface, #fff); color: var(--text, #322631); border: 1px solid var(--border, #e9dce3); border-radius: 18px; box-shadow: 0 18px 50px #2b17232b; }
+.inbox-popover { position: absolute; z-index: 100; right: -42px; top: calc(100% + 12px); width: min(390px, calc(100vw - 24px)); max-height: min(650px, calc(100vh - 90px)); overflow: auto; padding: 18px; background: var(--surface, #fff); color: var(--ink, #322631); border: 1px solid var(--border, #e9dce3); border-radius: 18px; box-shadow: 0 18px 50px #2b17232b; }
 .inbox-close { position: absolute; right: 11px; top: 11px; border: 0; background: transparent; color: inherit; padding: 7px; cursor: pointer; }
 .inbox-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-right: 23px; margin-bottom: 13px; }
 .inbox-head div { display: grid; gap: 2px; }
 .inbox-head strong { font-size: 17px; }
-.inbox-head small { color: var(--text-muted, #756775); }
+.inbox-head small { color: var(--muted, #756775); }
 .inbox-icon-button { border: 0; background: transparent; color: inherit; padding: 7px; cursor: pointer; }
 .inbox-list { display: grid; gap: 8px; max-height: 380px; overflow-y: auto; }
 .inbox-item { border: 1px solid var(--border, #e9dce3); border-radius: 12px; padding: 12px; background: var(--surface, #fff); }
 .inbox-item.unread { border-color: #d8a5b9; background: color-mix(in srgb, var(--surface, #fff) 88%, #f1dce6); }
 .inbox-item > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .inbox-item strong { font-size: 13px; }
-.inbox-item time { font-size: 11px; color: var(--text-muted, #756775); white-space: nowrap; }
+.inbox-item time { font-size: 11px; color: var(--muted, #756775); white-space: nowrap; }
 .inbox-item p { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
 .inbox-item button, .inbox-device-button { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 0; border: 0; background: transparent; color: #9c456b; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; text-align: left; }
 .inbox-device-button { margin-top: 15px; }
-.inbox-empty { padding: 15px 0; color: var(--text-muted, #756775); font-size: 13px; }
+.inbox-empty { padding: 15px 0; color: var(--muted, #756775); font-size: 13px; }
 .inbox-error { padding: 9px; background: #fff0f2; border-radius: 8px; color: #96364d; font-size: 12px; }
-.inbox-footnote { margin: 16px 0 0; color: var(--text-muted, #756775); font-size: 11px; line-height: 1.5; }
+.inbox-footnote { margin: 16px 0 0; color: var(--muted, #756775); font-size: 11px; line-height: 1.5; }
 .client-inbox-panel { padding: 18px; margin-bottom: 24px; background: var(--surface, #fff); border: 1px solid var(--border, #e9dce3); border-radius: 16px; box-shadow: 0 8px 28px #2b17230d; }
 .client-inbox-panel .inbox-list { max-height: 260px; }
 @media (max-width: 600px) { .inbox-popover { right: -65px; } .inbox-item > div { flex-wrap: wrap; } }

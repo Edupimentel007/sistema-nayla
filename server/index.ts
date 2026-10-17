@@ -10,7 +10,7 @@ import { addMinutes, dateAgo, db, fromCents, id, localNow, toCents, validDate } 
 import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
   sendBookingChangeNotification, updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
   webhookSettings, whatsAppConfig } from './notifications.js';
-import { answerAssistant } from './assistant.js';
+import { answerAssistant, assistantStatus } from './assistant.js';
 import { businessLogoUrl, deleteBusinessLogo, parseLogo, publicBusinessLogo, uploadBusinessLogo } from './logo.js';
 import { analyticsRouter } from './analytics.js';
 import { GoogleAuthError, mountGoogleAuth } from './googleAuth.js';
@@ -982,10 +982,15 @@ app.get('/api/dashboard', owner, (req, res) => {
   });
 });
 
+app.get('/api/assistant/status', owner, (_req, res) => res.json(assistantStatus()));
 app.post('/api/assistant', owner, rateLimit(60, 60_000), async (req, res) => {
-  const { message } = z.object({ message: z.string().trim().min(2).max(1000) }).parse(req.body);
-  const answer = await answerAssistant(currentUser(res).business_id, message);
-  res.json({ answer });
+  const { message, history } = z.object({
+    message: z.string().trim().min(2).max(1000),
+    history: z.array(z.object({
+      role: z.enum(['user', 'assistant']), text: z.string().trim().min(1).max(1000),
+    })).max(8).default([]),
+  }).parse(req.body);
+  res.json(await answerAssistant(currentUser(res).business_id, message, history));
 });
 
 function publicOrigin(req: Request) {

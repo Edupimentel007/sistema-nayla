@@ -59,6 +59,7 @@ p { line-height: 1.58; }
 .icon-button { border-radius: 7px; }
 .eyebrow { color: var(--pink); font-size: 10px; letter-spacing: .16em; }
 .subtle-link { color: var(--pink); font-size: 12px; font-weight: 700; }
+button.subtle-link { background: transparent; border: 0; padding: 0; }
 .count-pill { border-radius: 5px; font-size: 11px; }
 
 /* Public first impression: typography and product detail provide the visual interest. */

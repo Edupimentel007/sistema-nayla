@@ -35,7 +35,7 @@
 }
 
 .app-shell .content > .page {
-  animation: nayla-admin-enter 290ms cubic-bezier(.2, .7, .25, 1) both;
+  animation: nayla-admin-enter 290ms cubic-bezier(.2, .7, .25, 1) backwards;
 }
 
 .app-shell .page .metric-grid > .metric,

@@ -1,24 +1,183 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Plus, Trash2, Wallet, X } from 'lucide-react'
 import { api, type Finance, type FinancialEntry } from '../../lib/api'
-import { EmptyState, ErrorState, Loading, localISODate, money, PageHeading, Panel, PeriodPicker, shortDate } from '../shared'
+import { EmptyState, ErrorState, Loading, money, PageHeading, Panel, PeriodPicker, shortDate } from '../shared'
 import './admin-motion.css'
+
+function todayInSaoPaulo() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const value = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${value.year}-${value.month}-${value.day}`
+}
+
+function isInPeriod(date: string, period: number) {
+  const today = todayInSaoPaulo()
+  const start = new Date(`${today}T12:00:00Z`)
+  start.setUTCDate(start.getUTCDate() - period + 1)
+  return date >= start.toISOString().slice(0, 10) && date <= today
+}
+
+function parseAmount(text: string) {
+  const value = text.trim().replace(/\s/g, '')
+  const normalized = /^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(value)
+    ? value.replace(/\./g, '').replace(',', '.')
+    : /^\d+(?:[,.]\d{1,2})?$/.test(value) ? value.replace(',', '.') : ''
+  return normalized ? Number(normalized) : Number.NaN
+}
+
+function withEntry(finance: Finance, entry: FinancialEntry, direction: 1 | -1): Finance {
+  const cents = Math.round(entry.amount * 100) * direction
+  const incomeCents = Math.round(finance.income * 100) + (entry.type === 'income' ? cents : 0)
+  const expensesCents = Math.round(finance.expenses * 100) + (entry.type === 'expense' ? cents : 0)
+  const entries = direction === 1
+    ? [entry, ...finance.entries].sort((a, b) => b.date.localeCompare(a.date) ||
+      (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).slice(0, 1000)
+    : finance.entries.filter(item => item.id !== entry.id)
+  return { entries, income: incomeCents / 100, expenses: expensesCents / 100,
+    balance: (incomeCents - expensesCents) / 100 }
+}
 
 export function FinancePage() {
   const [period, setPeriod] = useState(30)
   const [data, setData] = useState<Finance | null>(null)
+  const [dataPeriod, setDataPeriod] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
+  const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
-  const [type, setType] = useState<'income' | 'expense'>('expense')
+  const [type, setType] = useState<'income' | 'expense'>('income')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(localISODate)
+  const [date, setDate] = useState(todayInSaoPaulo)
   const [saving, setSaving] = useState(false)
-  useEffect(() => { let live = true; setLoading(true); setError(''); api.finance(period).then(value => { if (live) setData(value) }).catch(reason => { if (live) setError(reason instanceof Error ? reason.message : 'Erro ao carregar financeiro.') }).finally(() => { if (live) setLoading(false) }); return () => { live = false } }, [period, retry])
-  const submit = async (event: FormEvent) => { event.preventDefault(); const value = Number(amount.replace(',', '.')); if (!Number.isFinite(value) || value <= 0) { setActionError('Informe um valor maior que zero.'); return } setSaving(true); setActionError(''); try { await api.createFinancialEntry({ type, description: description.trim(), amount: value, date }); setModalOpen(false); setDescription(''); setAmount(''); setRetry(current => current + 1) } catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Não foi possível salvar lançamento.') } finally { setSaving(false) } }
-  const remove = async (entry: FinancialEntry) => { if (!window.confirm(`Excluir o lançamento “${entry.description}”?`)) return; setActionError(''); try { await api.deleteFinancialEntry(entry.id); setRetry(current => current + 1) } catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Não foi possível excluir lançamento.') } }
-  return <div className="page"><PageHeading eyebrow="CONTROLE FINANCEIRO" title="Seu financeiro" description="Entenda suas entradas, despesas e o resultado do seu trabalho." action={<PeriodPicker value={period} onChange={setPeriod} />} /><div className="finance-toolbar"><span>Visão dos últimos {period} dias</span><button className="btn btn-primary" onClick={() => { setActionError(''); setModalOpen(true) }}><Plus size={18}/> Novo lançamento</button></div>{actionError && !modalOpen ? <p className="form-error" role="alert">{actionError}</p> : null}{loading ? <Loading label="Organizando suas finanças..." /> : error ? <ErrorState message={error} onRetry={() => setRetry(value => value + 1)} /> : data ? <><div className="metric-grid finance-metrics"><Panel className="metric"><div className="metric-icon mint"><ArrowDownLeft size={22}/></div><span className="metric-label">Entradas</span><strong>{money(data.income)}</strong><small>Receitas no período</small></Panel><Panel className="metric"><div className="metric-icon peach"><ArrowUpRight size={22}/></div><span className="metric-label">Saídas</span><strong>{money(data.expenses)}</strong><small>Despesas no período</small></Panel><Panel className="metric"><div className="metric-icon pink"><Wallet size={22}/></div><span className="metric-label">Saldo</span><strong>{money(data.balance)}</strong><small>Entradas menos saídas</small></Panel></div><Panel><div className="panel-heading"><div><span className="eyebrow">MOVIMENTAÇÕES</span><h2>Histórico financeiro</h2></div><span className="count-pill">{data.entries.length} lançamentos</span></div>{data.entries.length ? <div className="finance-list">{data.entries.map(entry => <div className="finance-row" key={entry.id}><span className={`finance-type-icon ${entry.type}`}><ArrowDownLeft size={19}/></span><div className="finance-entry"><strong>{entry.description}</strong><small>{shortDate(entry.date)} {entry.appointmentId ? '· Atendimento' : '· Lançamento manual'}</small></div><strong className={entry.type === 'income' ? 'income-text' : 'expense-text'}>{entry.type === 'income' ? '+' : '-'} {money(entry.amount)}</strong>{!entry.appointmentId ? <button className="icon-button delete-entry" title="Excluir lançamento" aria-label={`Excluir ${entry.description}`} onClick={() => void remove(entry)}><Trash2 size={17}/></button> : <span className="delete-placeholder"/>}</div>)}</div> : <EmptyState title="Nenhuma movimentação neste período" detail="Registre uma entrada ou despesa para acompanhar seu resultado." action={<button className="btn btn-secondary" onClick={() => setModalOpen(true)}>Adicionar lançamento</button>} />}</Panel></> : null}{modalOpen ? <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setModalOpen(false) }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="finance-title"><div className="modal-head"><span className="modal-icon"><CircleDollarSign size={22}/></span><button className="icon-button" onClick={() => setModalOpen(false)} aria-label="Fechar"><X size={21}/></button></div><h2 id="finance-title">Novo lançamento</h2><p>Registre uma movimentação do seu negócio.</p><form className="form-stack" onSubmit={submit}><div className="segmented"><button type="button" className={type === 'income' ? 'selected' : ''} onClick={() => setType('income')}>Entrada</button><button type="button" className={type === 'expense' ? 'selected' : ''} onClick={() => setType('expense')}>Despesa</button></div><label>Descrição<input value={description} onChange={e => setDescription(e.target.value)} placeholder="Ex.: Materiais de trabalho" maxLength={100} required /></label><div className="form-row"><label>Valor (R$)<input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0.01" step="0.01" placeholder="0,00" required /></label><label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label></div>{actionError ? <p className="form-error" role="alert">{actionError}</p> : null}<div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar lançamento'}</button></div></form></div></div> : null}</div>
+  const [removing, setRemoving] = useState<string | null>(null)
+  const requestVersion = useRef(0)
+  const visibleData = dataPeriod === period ? data : null
+
+  useEffect(() => {
+    let live = true
+    const version = ++requestVersion.current
+    setLoading(true)
+    setError('')
+    api.finance(period)
+      .then(value => { if (live && requestVersion.current === version) { setData(value); setDataPeriod(period) } })
+      .catch(reason => { if (live && requestVersion.current === version) setError(reason instanceof Error ? reason.message : 'Erro ao carregar financeiro.') })
+      .finally(() => { if (live && requestVersion.current === version) setLoading(false) })
+    return () => { live = false }
+  }, [period, retry])
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving) return
+    const value = parseAmount(amount)
+    if (!Number.isFinite(value) || value <= 0 || value > 1_000_000) {
+      setActionError('Informe um valor entre R$ 0,01 e R$ 1.000.000,00.')
+      return
+    }
+    setSaving(true)
+    setActionError('')
+    try {
+      const entry = await api.createFinancialEntry({ type, description: description.trim(), amount: value, date })
+      const inPeriod = isInPeriod(entry.date, period)
+      requestVersion.current += 1
+      if (inPeriod && visibleData) setData(current => current ? withEntry(current, entry, 1) : current)
+      setNotice(inPeriod
+        ? `${entry.type === 'income' ? 'Entrada' : 'Despesa'} de ${money(entry.amount)} registrada. Os totais foram atualizados.`
+        : `Lançamento salvo em ${shortDate(entry.date)}. Esta data está fora do período selecionado.`)
+      setModalOpen(false)
+      setDescription('')
+      setAmount('')
+      setDate(todayInSaoPaulo())
+      setRetry(current => current + 1)
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Não foi possível salvar lançamento.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async (entry: FinancialEntry) => {
+    if (!window.confirm(`Excluir o lançamento “${entry.description}”?`)) return
+    setRemoving(entry.id)
+    setActionError('')
+    setNotice('')
+    try {
+      await api.deleteFinancialEntry(entry.id)
+      requestVersion.current += 1
+      if (visibleData) setData(current => current ? withEntry(current, entry, -1) : current)
+      setNotice('Lançamento excluído. Os totais foram atualizados.')
+      setRetry(current => current + 1)
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Não foi possível excluir lançamento.')
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  return <div className="page">
+    <PageHeading eyebrow="CONTROLE FINANCEIRO" title="Seu financeiro"
+      description="Entradas manuais e atendimentos concluídos entram no faturamento. Agendamentos futuros ainda não são receita."
+      action={<PeriodPicker value={period} onChange={value => { setPeriod(value); setNotice('') }} />} />
+    <div className="finance-toolbar">
+      <span>Visão dos últimos {period} dias{loading && visibleData ? ' · Atualizando...' : ''}</span>
+      <button className="btn btn-primary" onClick={() => { setActionError(''); setNotice(''); setDate(todayInSaoPaulo()); setModalOpen(true) }}>
+        <Plus size={18}/> Novo lançamento
+      </button>
+    </div>
+    {actionError && !modalOpen ? <p className="form-error" role="alert">{actionError}</p> : null}
+    {notice && !modalOpen ? <p className="form-success" role="status">{notice}</p> : null}
+    {loading && !visibleData ? <Loading label="Organizando suas finanças..." /> :
+      error && !visibleData ? <ErrorState message={error} onRetry={() => setRetry(value => value + 1)} /> :
+      visibleData ? <>
+        {error ? <p className="form-error" role="alert">Não foi possível atualizar agora. Exibindo os últimos dados carregados.</p> : null}
+        <div className="metric-grid finance-metrics">
+          <Panel className="metric"><div className="metric-icon mint"><ArrowDownLeft size={22}/></div><span className="metric-label">Entradas</span><strong>{money(visibleData.income)}</strong><small>Receitas no período</small></Panel>
+          <Panel className="metric"><div className="metric-icon peach"><ArrowUpRight size={22}/></div><span className="metric-label">Saídas</span><strong>{money(visibleData.expenses)}</strong><small>Despesas no período</small></Panel>
+          <Panel className="metric"><div className="metric-icon pink"><Wallet size={22}/></div><span className="metric-label">Saldo</span><strong>{money(visibleData.balance)}</strong><small>Entradas menos saídas</small></Panel>
+        </div>
+        <Panel>
+          <div className="panel-heading"><div><span className="eyebrow">MOVIMENTAÇÕES</span><h2>Histórico financeiro</h2></div><span className="count-pill">{visibleData.entries.length} lançamentos</span></div>
+          {visibleData.entries.length ? <div className="finance-list">{visibleData.entries.map(entry =>
+            <div className="finance-row" key={entry.id}>
+              <span className={`finance-type-icon ${entry.type}`}>
+                {entry.type === 'income' ? <ArrowDownLeft size={19}/> : <ArrowUpRight size={19}/>}
+              </span>
+              <div className="finance-entry"><strong>{entry.description}</strong><small>{shortDate(entry.date)} {entry.appointmentId ? '· Atendimento' : '· Lançamento manual'}</small></div>
+              <strong className={entry.type === 'income' ? 'income-text' : 'expense-text'}>{entry.type === 'income' ? '+' : '-'} {money(entry.amount)}</strong>
+              {!entry.appointmentId ? <button className="icon-button delete-entry" title="Excluir lançamento"
+                aria-label={`Excluir ${entry.description}`} disabled={removing === entry.id} onClick={() => void remove(entry)}>
+                <Trash2 size={17}/>
+              </button> : <span className="delete-placeholder"/>}
+            </div>)}</div> : <EmptyState title="Nenhuma movimentação neste período"
+            detail="Registre uma entrada ou despesa para acompanhar seu resultado."
+            action={<button className="btn btn-secondary" onClick={() => { setActionError(''); setDate(todayInSaoPaulo()); setModalOpen(true) }}>Adicionar lançamento</button>} />}
+        </Panel>
+      </> : null}
+    {modalOpen ? <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) setModalOpen(false) }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="finance-title">
+        <div className="modal-head"><span className="modal-icon"><CircleDollarSign size={22}/></span><button className="icon-button" onClick={() => setModalOpen(false)} disabled={saving} aria-label="Fechar"><X size={21}/></button></div>
+        <h2 id="finance-title">Novo lançamento</h2><p>Registre uma movimentação do seu negócio.</p>
+        <form className="form-stack" onSubmit={submit}>
+          <div className="segmented" role="group" aria-label="Tipo de lançamento">
+            <button type="button" className={type === 'income' ? 'selected' : ''} aria-pressed={type === 'income'} onClick={() => setType('income')}>Entrada</button>
+            <button type="button" className={type === 'expense' ? 'selected' : ''} aria-pressed={type === 'expense'} onClick={() => setType('expense')}>Despesa</button>
+          </div>
+          <label>Descrição<input value={description} onChange={e => setDescription(e.target.value)}
+            placeholder={type === 'income' ? 'Ex.: Venda de produto' : 'Ex.: Materiais de trabalho'} maxLength={100} required /></label>
+          <div className="form-row">
+            <label>Valor (R$)<input type="text" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
+              placeholder="0,00" required /></label>
+            <label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
+          </div>
+          {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
+          <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setModalOpen(false)}>Cancelar</button>
+            <button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar lançamento'}</button></div>
+        </form>
+      </div>
+    </div> : null}
+  </div>
 }

@@ -7,6 +7,7 @@ import './app/styles.css'
 import './pwa.css'
 import './app/visual-refresh.css'
 import './app/motion.css'
+import './app/dark-theme.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /><InstallPrompt /></React.StrictMode>)
 

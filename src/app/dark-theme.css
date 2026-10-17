@@ -1,0 +1,66 @@
+/* Dark surfaces use the same tokens as the rest of the app. Keep text on
+   interactive pink controls dark enough to read in every state. */
+:root[data-theme='dark'] {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] :is(input, textarea)::placeholder {
+  color: #bfaeb8;
+  opacity: 1;
+}
+
+:root[data-theme='dark'] :is(.chat-avatar, .message-avatar, .chat-input-wrap button,
+  .chat-message.user > div, .booking-stepper .current b,
+  .booking-service.selected .booking-service-radio,
+  .slots button:hover, .slots button.selected,
+  .client-appointment-slots button:hover, .client-appointment-slots button.selected,
+  .onboarding-plan.selected .onboarding-radio, .pwa-install-icon) {
+  color: #271921;
+}
+
+:root[data-theme='dark'] .switch input:checked + span::before {
+  background: #271921;
+}
+
+/* The light-theme status and icon colors are too muted against charcoal. */
+:root[data-theme='dark'] :is(.client-avatar, .finance-type-icon.income,
+  .finance-type-icon.expense, .booking-success > span, .client-preference-icon) {
+  background: var(--pink-soft);
+  color: var(--pink);
+}
+
+:root[data-theme='dark'] :is(.income-text, .finance-type-icon.income) { color: #91d6b2; }
+:root[data-theme='dark'] :is(.expense-text, .finance-type-icon.expense) { color: #f0acb8; }
+:root[data-theme='dark'] .finance-type-icon.income { background: #294438; }
+:root[data-theme='dark'] .finance-type-icon.expense { background: #493238; }
+:root[data-theme='dark'] :is(.booking-success > span, .client-preference-icon) {
+  background: #294438;
+  color: #91d6b2;
+}
+
+:root[data-theme='dark'] :is(.today-sync-error, .notification-row .notification-error,
+  .client-appointment-inline-error, .client-appointment-side button,
+  .delete-entry:hover, .service-actions button:last-child:hover) {
+  color: #f0acb8;
+}
+
+:root[data-theme='dark'] .urgent-message-badge {
+  color: #ffd1dc;
+  background: #493038;
+  border-color: #9d6676;
+}
+
+:root[data-theme='dark'] .inbox-error {
+  background: #493038;
+  color: #ffd1dc;
+}
+
+:root[data-theme='dark'] :is(.inbox-item button, .inbox-device-button) {
+  color: var(--pink);
+}
+
+:root[data-theme='dark'] .inbox-item.unread {
+  border-color: #8d596d;
+  background: var(--pink-softer);
+}

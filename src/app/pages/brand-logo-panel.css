@@ -1,7 +1,7 @@
 .brand-logo-content { display: flex; align-items: flex-start; gap: 1.25rem; }
 .brand-logo-copy { min-width: 0; }
 .brand-logo-copy p { margin: 0 0 .4rem; }
-.brand-logo-copy small { display: block; color: var(--text-muted, #746b70); }
+.brand-logo-copy small { display: block; color: var(--muted, #746b70); }
 .brand-logo-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
 .brand-logo-actions label { position: relative; cursor: pointer; }
 .brand-logo-actions input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }

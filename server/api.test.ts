@@ -299,6 +299,21 @@ describe('Nayla API', () => {
       type: 'income', description: 'Venda adicional', amount: 123.45, date: today,
     }) }, ownerCookie);
     expect(income.status).toBe(201);
+    const expense = await request('/api/finance', { method: 'POST', body: JSON.stringify({
+      type: 'expense', description: 'Material usado', amount: 12.34, date: today,
+    }) }, ownerCookie);
+    expect(expense.status).toBe(201);
+    const financeNow = await request('/api/finance?period=1', {}, ownerCookie);
+    expect(financeNow.body.income).toBe(123.45);
+    expect(financeNow.body.expenses).toBe(12.34);
+    expect(financeNow.body.balance).toBe(111.11);
+    expect(financeNow.body.entries.map((entry: any) => entry.id)).toContain(income.body.id);
+    expect(financeNow.body.entries.map((entry: any) => entry.id)).toContain(expense.body.id);
+    const analysisNow = await request('/api/analytics?period=7', {}, ownerCookie);
+    expect(analysisNow.body.overview.income.current).toBe(123.45);
+    expect(analysisNow.body.overview.expenses.current).toBe(12.34);
+    expect((await request(`/api/finance/${expense.body.id}`, { method: 'DELETE' }, ownerCookie)).status).toBe(204);
+    expect((await request('/api/finance?period=1', {}, ownerCookie)).body.balance).toBe(123.45);
     const todayDashboard = await request('/api/dashboard?period=1', {}, ownerCookie);
     expect(todayDashboard.status).toBe(200);
     expect(todayDashboard.body.revenue).toBe(123.45);
@@ -313,6 +328,34 @@ describe('Nayla API', () => {
       body: JSON.stringify({ message: 'Qual meu faturamento de hoje?' }) }, ownerCookie);
     expect(assistant.status).toBe(200);
     expect(assistant.body.answer).toContain('123,45');
+    expect(assistant.body.mode).toBe('local');
+    expect((await request('/api/assistant/status', {}, ownerCookie)).body.aiAvailable).toBe(false);
+    const serviceAdvice = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Quais meus serviços disponíveis?' }) }, ownerCookie);
+    expect(serviceAdvice.body.answer).toContain('Manicure');
+    assert.equal(serviceAdvice.body.answer.includes('Extensão de cílios'), false);
+    const beautyAdvice = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Como posso melhorar meu atendimento de unhas?' }) }, ownerCookie);
+    expect(beautyAdvice.body.answer).toContain('Para unhas');
+    const areaAdvice = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Dicas para atender melhor na minha área' }) }, ownerCookie);
+    expect(areaAdvice.body.answer).toContain('Para unhas');
+    const otherArea = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Dicas para melhorar meu atendimento de cílios?' }) }, ownerCookie);
+    expect(otherArea.body.answer).toContain('não está selecionada');
+    const systemHelp = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Como compartilho meu link de agendamento?' }) }, ownerCookie);
+    expect(systemHelp.body.answer).toContain('/agendar/atelie-ana-test');
+    const openQuestion = await request('/api/assistant', { method: 'POST',
+      body: JSON.stringify({ message: 'Qual é a capital da França?', history: [
+        { role: 'user', text: 'Quais serviços ofereço?' },
+        { role: 'assistant', text: 'Seus serviços estão no app.' },
+      ] }) }, ownerCookie);
+    expect(openQuestion.body.answer).toContain('IA conversacional ainda não está ativa');
+    expect(openQuestion.body.mode).toBe('local');
+    expect((await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+      message: 'Olá?', history: Array(9).fill({ role: 'user', text: 'oi' }),
+    }) }, ownerCookie)).status).toBe(400);
     const inactive = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Qual cliente não voltou depois de um mês?' }) }, ownerCookie);
     expect(inactive.status).toBe(200);
