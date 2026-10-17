@@ -58,6 +58,6 @@ export function PageHeading({ eyebrow, title, description, action }: { eyebrow?:
   return <div className="page-heading"><div>{eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}<h1>{title}</h1>{description ? <p>{description}</p> : null}</div>{action ? <div className="page-action">{action}</div> : null}</div>
 }
 
-export function PeriodPicker({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  return <div className="period-picker" aria-label="Período">{[7, 30, 60, 90].map((days) => <button key={days} type="button" className={value === days ? 'selected' : ''} onClick={() => onChange(days)}>{days} dias</button>)}</div>
+export function PeriodPicker({ value, onChange, showToday = false }: { value: number; onChange: (value: number) => void; showToday?: boolean }) {
+  return <div className="period-picker" role="group" aria-label="Período">{(showToday ? [1, 7, 30, 60, 90] : [7, 30, 60, 90]).map((days) => <button key={days} type="button" className={value === days ? 'selected' : ''} aria-pressed={value === days} onClick={() => onChange(days)}>{days === 1 ? 'Hoje' : `${days} dias`}</button>)}</div>
 }

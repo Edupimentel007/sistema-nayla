@@ -285,8 +285,8 @@ app.delete('/api/auth/account', authenticatedOwner, rateLimit(10), async (req, r
 });
 
 app.get('/api/business', owner, (_req, res) => res.json(businessById(currentUser(res).business_id)));
-app.post('/api/business/logo', owner, rateLimit(10), parseLogo, uploadBusinessLogo);
-app.delete('/api/business/logo', owner, deleteBusinessLogo);
+app.post('/api/business/logo', authenticatedOwner, rateLimit(10), parseLogo, uploadBusinessLogo);
+app.delete('/api/business/logo', authenticatedOwner, deleteBusinessLogo);
 app.get('/api/public/:slug/logo', publicBusinessLogo);
 app.patch('/api/business', owner, (req, res) => {
   const input = z.object({
@@ -878,9 +878,10 @@ app.patch('/api/appointments/:id/cancel-by-owner', owner,
   (req, res) => cancelAppointment(req, res, 'owner', 'owner_cancelled'));
 
 function periodDates(query: Request['query']) {
-  const period = z.coerce.number().refine(value => [7, 30, 60, 90].includes(value))
+  const period = z.coerce.number().refine(value => [1, 7, 30, 60, 90].includes(value))
     .parse(query.period ?? 30);
-  return { from: dateAgo(period), to: localNow().date, period };
+  const to = localNow().date;
+  return { from: period === 1 ? to : dateAgo(period), to, period };
 }
 function entryDto(row: Row) {
   return { id: row.id, type: row.type, description: row.description,

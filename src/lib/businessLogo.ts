@@ -13,6 +13,12 @@ export function businessLogoSrc(logoUrl?: string | null) {
   return `${apiOrigin()}${logoUrl}`
 }
 
+export function validateBusinessLogoFile(file: File) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || !file.size || file.size > 1024 * 1024)
+    return 'Escolha uma imagem PNG, JPEG ou WebP de até 1 MB.'
+  return null
+}
+
 async function logoRequest(method: 'POST' | 'DELETE', file?: File) {
   const token = await nativeSessionToken('owner')
   const response = await fetch(`${apiOrigin()}/api/business/logo`, {

@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import sharp from 'sharp';
 import { catalog as serviceTemplates } from './catalog.js';
 
 let mock: Server;
@@ -258,6 +259,13 @@ describe('cobrança Nayla via Mercado Pago', () => {
     const initial = (await request('/api/billing/subscription', 'GET', undefined, cookie)).body;
     assert.equal(initial.trialEndsAt, null);
     assert.equal(initial.trialAvailable, true);
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3,
+      background: '#a13d62' } }).png().toBuffer();
+    const logoUpload = await fetch(`${baseUrl}/api/business/logo`, { method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'image/png' }, body: png });
+    assert.equal(logoUpload.status, 200, 'a logo pode ser enviada durante o cadastro, antes do teste');
+    assert.match((await logoUpload.json() as { logoUrl: string }).logoUrl,
+      /\/api\/public\/trial-owner-billing\/logo\?v=/);
     assert.equal((await request('/api/billing/trial', 'POST', { extra: true }, cookie)).status, 400);
     const startedTrial = await request('/api/billing/trial', 'POST', {}, cookie);
     assert.equal(startedTrial.status, 200);

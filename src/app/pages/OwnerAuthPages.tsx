@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight, Check, Moon, ShieldCheck, Sun } from 'lucide-react'
-import { api, type CatalogService, type CustomSignupService, type GoogleCompletion, type Specialty } from '../../lib/api'
+import { ArrowRight, Check, ImageUp, Moon, ShieldCheck, Sun } from 'lucide-react'
+import { api, type CatalogService, type CustomSignupService, type GoogleCompletion, type Session, type Specialty } from '../../lib/api'
+import { uploadBusinessLogo, validateBusinessLogoFile } from '../../lib/businessLogo'
 import { clearGoogleAppNonce, currentGoogleAppNonce, readGoogleErrorFromUrl, readGoogleTicketFromUrl } from '../../lib/googleAuth'
 import { GoogleSignInButton } from '../GoogleSignInButton'
 import { SignupServiceSelector, type CustomServiceDraft } from '../SignupServiceSelector'
@@ -9,6 +10,7 @@ import { SpecialtySelector } from '../SpecialtySelector'
 import { useAuth, useTheme } from '../contexts'
 import { Logo } from '../shared'
 import './public-motion.css'
+import './signup-logo.css'
 
 type GooglePending = { ticket: string; email: string; name: string; passwordLinkRequired: boolean }
 const strongPassword = (value: string) => value.length >= 12 && /[A-Za-z]/.test(value) && /\d/.test(value)
@@ -113,6 +115,16 @@ export function OwnerRegisterPage() {
   const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState('')
+  const [logoError, setLogoError] = useState('')
+  const [createdSession, setCreatedSession] = useState<Session | null>(null)
+  useEffect(() => {
+    if (!logoFile) { setLogoPreview(''); return }
+    const preview = URL.createObjectURL(logoFile)
+    setLogoPreview(preview)
+    return () => URL.revokeObjectURL(preview)
+  }, [logoFile])
   useEffect(() => {
     let live = true
     setCatalogLoading(true)
@@ -141,6 +153,36 @@ export function OwnerRegisterPage() {
     setCustomServices(current => current.map((service, position) => position === index ? { ...service, ...patch } : service))
   const removeCustomService = (index: number) =>
     setCustomServices(current => current.filter((_, position) => position !== index))
+  const chooseLogo = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    const validationError = validateBusinessLogoFile(file)
+    setLogoError(validationError || '')
+    setLogoFile(validationError ? null : file)
+    if (createdSession) setError('')
+  }
+  const finishRegistration = async (session: Session) => {
+    if (logoFile) {
+      try {
+        const { logoUrl } = await uploadBusinessLogo(logoFile)
+        setSession({ ...session, business: { ...session.business, logoUrl } })
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : 'Tente enviar outra imagem.'
+        setCreatedSession(session)
+        setError(`Sua conta foi criada, mas a logo ainda não foi salva. ${message} Tente novamente ou continue sem logo.`)
+        return
+      }
+    }
+    navigate('/app', { replace: true })
+  }
+  const retryLogo = async () => {
+    if (!createdSession || busy) return
+    setBusy(true)
+    setError('')
+    try { await finishRegistration(createdSession) }
+    finally { setBusy(false) }
+  }
   const applyGoogle = (result: GoogleCompletion) => {
     if ('user' in result) { clearGoogleAppNonce(); setSession(result); navigate('/app', { replace: true }); return }
     const next = { ticket: result.googleTicket || '', email: result.email,
@@ -150,6 +192,7 @@ export function OwnerRegisterPage() {
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('')
+    if (createdSession || busy) return
     if (!selected.length) { setError('Selecione pelo menos uma área de atuação.'); return }
     const filledCustom = customServices.filter(item => item.name.trim() || item.price.trim())
     const preparedCustom: CustomSignupService[] = []
@@ -181,14 +224,47 @@ export function OwnerRegisterPage() {
       const session = google
         ? await api.googleRegister('owner', google.ticket, details, currentGoogleAppNonce())
         : await api.register(details)
-      clearGoogleAppNonce(); setSession(session); navigate('/app', { replace: true })
+      clearGoogleAppNonce()
+      setSession(session)
+      await finishRegistration(session)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar sua conta.') }
     finally { setBusy(false) }
   }
-  return <AuthLayout title="Crie seu espaço" subtitle="Informe seus dados e escolha as áreas e serviços que quer oferecer.">
-    <div className="registration-trial"><span>SEU PRIMEIRO MÊS NA NAYLA</span><strong>30 dias grátis para testar</strong><p>Comece sem cartão. Após o teste, escolha um plano para continuar. Nenhuma cobrança será feita automaticamente.</p></div>
-    {google ? <p className="form-success"><Check size={16} /> Google confirmado para {google.email}. Complete seu espaço e escolha uma senha de recuperação.</p> : null}
-    <form onSubmit={submit} className="form-stack">
+  const logoPicker = <div className="signup-logo-field">
+    <div className="signup-logo-preview">
+      {logoPreview ? <img src={logoPreview} alt="Prévia da logo escolhida" />
+        : <span aria-hidden="true">{businessName.trim().charAt(0).toLocaleUpperCase('pt-BR') || 'N'}</span>}
+    </div>
+    <div className="signup-logo-details">
+      <strong>Logo do seu espaço <span>(opcional)</span></strong>
+      <p>Ela aparecerá no seu perfil e no link de agendamento. Você também poderá trocar nas Configurações.</p>
+      <div className="signup-logo-actions">
+        <label className="btn btn-secondary signup-logo-button"><ImageUp size={17} /> {logoFile ? 'Trocar imagem' : 'Escolher imagem'}
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseLogo}
+            aria-label="Escolher logo do espaço em PNG, JPEG ou WebP" disabled={busy} />
+        </label>
+        {logoFile ? <button type="button" className="subtle-link" disabled={busy}
+          onClick={() => { setLogoFile(null); setLogoError('') }}>Remover seleção</button> : null}
+      </div>
+      <small>PNG, JPEG ou WebP · até 1 MB.</small>
+      {logoError ? <p className="form-error" role="alert">{logoError}</p> : null}
+    </div>
+  </div>
+  return <AuthLayout title={createdSession ? 'Seu espaço está pronto' : 'Crie seu espaço'}
+    subtitle={createdSession ? 'Ajuste a logo ou siga para conhecer a Nayla.' : 'Informe seus dados e escolha as áreas e serviços que quer oferecer.'}>
+    {!createdSession ? <div className="registration-trial"><span>SEU PRIMEIRO MÊS NA NAYLA</span><strong>30 dias grátis para testar</strong><p>Comece sem cartão. Após o teste, escolha um plano para continuar. Nenhuma cobrança será feita automaticamente.</p></div> : null}
+    {google && !createdSession ? <p className="form-success"><Check size={16} /> Google confirmado para {google.email}. Complete seu espaço e escolha uma senha de recuperação.</p> : null}
+    {createdSession ? <div className="signup-logo-retry">
+      <p className="form-success" role="status"><Check size={16} /> Sua conta foi criada. Você pode tentar outra imagem ou continuar sem logo.</p>
+      {logoPicker}
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <div className="signup-logo-retry-actions">
+        <button className="btn btn-primary" type="button" disabled={busy || !logoFile || Boolean(logoError)}
+          onClick={() => void retryLogo()}>{busy ? 'Salvando logo...' : 'Tentar salvar logo'}</button>
+        <button className="btn btn-secondary" type="button" disabled={busy}
+          onClick={() => navigate('/app', { replace: true })}>Continuar sem logo</button>
+      </div>
+    </div> : <form onSubmit={submit} className="form-stack">
       <div className="form-row"><label>Seu nome<input value={ownerName} onChange={event => setOwnerName(event.target.value)}
         placeholder="Como podemos chamar você?" autoComplete="name" required /></label>
         <label>Nome do seu espaço<input value={businessName} onChange={event => { setBusinessName(event.target.value); if (!slugEdited) setSlug(slugify(event.target.value)) }}
@@ -196,6 +272,7 @@ export function OwnerRegisterPage() {
       <label>Seu link de agendamento<div className="input-prefix"><span>/agendar/</span><input value={slug}
         onChange={event => { setSlugEdited(true); setSlug(slugify(event.target.value)) }} placeholder="studio-maria" required /></div>
         <small className="auth-help">As clientes usarão este link para ver apenas os serviços do seu espaço.</small></label>
+      {logoPicker}
       <label>E-mail<input type="email" value={email} onChange={event => setEmail(event.target.value)}
         placeholder="voce@exemplo.com" autoComplete="email" readOnly={Boolean(google)} required /></label>
       <label>Senha<input type="password" value={password} onChange={event => setPassword(event.target.value)}
@@ -213,8 +290,8 @@ export function OwnerRegisterPage() {
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <button className="btn btn-primary btn-full" disabled={busy}>{busy ? 'Criando...' : 'Criar meu espaço'} <ArrowRight size={17} /></button>
       <p className="form-hint"><ShieldCheck size={15} /> Seus dados ficam protegidos no seu espaço.</p>
-    </form>
-    {!google ? <GoogleSignInButton role="owner" remember={remember} onResult={applyGoogle} onError={setError} /> : null}
-    <p className="auth-switch">Já tem uma conta? <Link to="/entrar">Entrar</Link></p>
+    </form>}
+    {!google && !createdSession ? <GoogleSignInButton role="owner" remember={remember} onResult={applyGoogle} onError={setError} /> : null}
+    {!createdSession ? <p className="auth-switch">Já tem uma conta? <Link to="/entrar">Entrar</Link></p> : null}
   </AuthLayout>
 }

@@ -299,6 +299,14 @@ describe('Nayla API', () => {
       type: 'income', description: 'Venda adicional', amount: 123.45, date: today,
     }) }, ownerCookie);
     expect(income.status).toBe(201);
+    const todayDashboard = await request('/api/dashboard?period=1', {}, ownerCookie);
+    expect(todayDashboard.status).toBe(200);
+    expect(todayDashboard.body.revenue).toBe(123.45);
+    expect(todayDashboard.body.appointments).toBe(0);
+    expect(todayDashboard.body.clients).toBe(0);
+    expect(todayDashboard.body.recentAppointments).toEqual([]);
+    expect((await request('/api/dashboard?period=1', {}, otherCookie)).body.revenue).toBe(0);
+    expect((await request('/api/dashboard?period=2', {}, ownerCookie)).status).toBe(400);
     expect((await request('/api/dashboard?period=7', {}, ownerCookie)).body.revenue).toBe(123.45);
     expect((await request('/api/dashboard?period=7', {}, otherCookie)).body.revenue).toBe(0);
     const assistant = await request('/api/assistant', { method: 'POST',

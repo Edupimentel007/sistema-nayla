@@ -1,3 +1,5 @@
+.dashboard-page .period-picker{flex-wrap:wrap;max-width:100%}
+.dashboard-page .period-picker button{flex:none}
 .today-panel{margin-bottom:20px}
 .today-panel-actions{display:flex;align-items:center;gap:13px}
 .today-date{margin:6px 0 0;color:var(--muted);font-size:11px;text-transform:capitalize}

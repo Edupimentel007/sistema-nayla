@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent } from 'react'
 import { ImageUp, Trash2 } from 'lucide-react'
-import { deleteBusinessLogo, uploadBusinessLogo } from '../../lib/businessLogo'
+import { deleteBusinessLogo, uploadBusinessLogo, validateBusinessLogoFile } from '../../lib/businessLogo'
 import { useAuth } from '../contexts'
 import { BusinessLogo } from '../BusinessLogo'
 import { Panel } from '../shared'
@@ -17,8 +17,9 @@ export function BrandLogoPanel() {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 1024 * 1024 || !file.size) {
-      setError('Escolha uma imagem PNG, JPEG ou WebP de até 1 MB.')
+    const validationError = validateBusinessLogoFile(file)
+    if (validationError) {
+      setError(validationError)
       return
     }
     setBusy(true)
@@ -40,7 +41,7 @@ export function BrandLogoPanel() {
     try {
       await deleteBusinessLogo()
       setSession({ ...session, business: { ...session.business, logoUrl: null } })
-      setNotice('Logo removida. A inicial do espaço aparecerá no lugar.')
+      setNotice('Logo removida. Os ícones voltarão a mostrar as iniciais.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível remover a logo.')
     } finally { setBusy(false) }
@@ -51,7 +52,7 @@ export function BrandLogoPanel() {
     <div className="brand-logo-content">
       <BusinessLogo name={session.business.name} logoUrl={session.business.logoUrl} className="business-logo-settings" />
       <div className="brand-logo-copy">
-        <p>Sua logo aparece no painel e na página de agendamento das clientes. Use uma imagem nítida, preferencialmente quadrada.</p>
+        <p>Sua logo aparece no ícone do perfil, no painel e na página de agendamento das clientes. Use uma imagem nítida, preferencialmente quadrada.</p>
         <small>PNG, JPEG ou WebP · até 1 MB. O envio salva a imagem imediatamente.</small>
         <div className="brand-logo-actions">
           <label className={`btn btn-secondary ${busy ? 'brand-logo-busy' : ''}`}>
