@@ -1,10 +1,12 @@
 import { BrowserRouter, HashRouter, Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { lazy, Suspense, useState } from 'react'
-import { ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, ContactRound, Heart, LayoutDashboard, LogOut, Menu, Moon, Scissors, Settings2, Sparkles, Sun, Wallet, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, ContactRound, CreditCard, Heart, LayoutDashboard, LogOut, Menu, Moon, Scissors, Settings2, Sparkles, Sun, Wallet, X } from 'lucide-react'
 import { AuthProvider, ThemeProvider, useAuth, useTheme } from './contexts'
 import { Loading, Logo } from './shared'
 import { BusinessLogo } from './BusinessLogo'
+import { OnboardingGate } from './OnboardingGate'
+import { OwnerInboxButton } from './InboxNotifications'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => ({ default: module.DashboardPage })))
 const AgendaPage = lazy(() => import('./pages/AgendaPage').then(module => ({ default: module.AgendaPage })))
@@ -19,6 +21,7 @@ const OwnerRegisterPage = lazy(() => import('./pages/OwnerAuthPages').then(modul
 const BookingPage = lazy(() => import('./pages/PublicPages').then(module => ({ default: module.BookingPage })))
 const ClientLoginPage = lazy(() => import('./pages/PublicPages').then(module => ({ default: module.ClientLoginPage })))
 const ClientAppointmentsPage = lazy(() => import('./pages/PublicPages').then(module => ({ default: module.ClientAppointmentsPage })))
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })))
 
 const navigation = [
   { path: '/app', label: 'Visão geral', icon: LayoutDashboard, end: true },
@@ -28,6 +31,7 @@ const navigation = [
   { path: '/app/analises', label: 'Análises', icon: ChartNoAxesCombined },
   { path: '/app/servicos', label: 'Serviços', icon: Scissors },
   { path: '/app/assistente', label: 'Nayla IA', icon: Sparkles },
+  { path: '/app/boas-vindas', label: 'Plano e cobrança', icon: CreditCard },
   { path: '/app/configuracoes', label: 'Configurações', icon: Settings2 },
 ]
 
@@ -60,7 +64,7 @@ function AdminShell() {
       <div className="sidebar-bottom"><div className="sidebar-promo"><span className="promo-icon"><Heart size={18} fill="currentColor" /></span><strong>Seu espaço de agendamentos</strong><p>Compartilhe seu link e receba suas clientes com praticidade.</p><Link to={bookingUrl} target={Capacitor.isNativePlatform() ? undefined : '_blank'}>Ver minha página <ArrowRight size={14} /></Link></div><button className="side-link signout" onClick={signOut}><LogOut size={19} /> Sair da conta</button></div>
     </aside>
     {menuOpen ? <button className="sidebar-scrim" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
-    <div className="app-main"><header className="topbar"><div className="topbar-left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={22} /></button><span className="topbar-greeting">Olá, <strong>{session.user.name.split(' ')[0]}</strong></span></div><div className="topbar-right"><span className="today-tag"><CalendarDays size={16} /> {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date())}</span><ThemeButton /><Link to="/app/configuracoes" className="header-avatar" title="Configurações">{session.user.name.charAt(0).toUpperCase()}</Link></div></header><main className="content"><Suspense fallback={<Loading label="Abrindo página..." />}><Outlet /></Suspense></main></div>
+    <div className="app-main"><header className="topbar"><div className="topbar-left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={22} /></button><span className="topbar-greeting">Olá, <strong>{session.user.name.split(' ')[0]}</strong></span></div><div className="topbar-right"><span className="today-tag"><CalendarDays size={16} /> {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date())}</span><OwnerInboxButton /><ThemeButton /><Link to="/app/configuracoes" className="header-avatar" title="Configurações">{session.user.name.charAt(0).toUpperCase()}</Link></div></header><main className="content"><Suspense fallback={<Loading label="Abrindo página..." />}><Outlet /></Suspense></main></div>
   </div>
 }
 
@@ -78,5 +82,5 @@ function NotFoundPage() { return <div className="not-found"><span>404</span><h1>
 
 export function App() {
   const Router = Capacitor.isNativePlatform() ? HashRouter : BrowserRouter
-  return <ThemeProvider><AuthProvider><Router><Suspense fallback={<main className="center-screen"><Loading label="Abrindo Nayla..." /></main>}><Routes><Route path="/" element={<LandingPage />} /><Route path="/entrar" element={<OwnerLoginPage />} /><Route path="/cadastro" element={<OwnerRegisterPage />} /><Route element={<RequireAuth />}><Route path="/app" element={<AdminShell />}><Route index element={<DashboardPage />} /><Route path="agenda" element={<AgendaPage />} /><Route path="clientes" element={<ClientsPage />} /><Route path="financeiro" element={<FinancePage />} /><Route path="analises" element={<AnalyticsPage />} /><Route path="servicos" element={<ServicesPage />} /><Route path="assistente" element={<AssistantPage />} /><Route path="configuracoes" element={<SettingsPage />} /></Route></Route><Route path="/agendar/:slug" element={<BookingPage />} /><Route path="/agendar/:slug/entrar" element={<ClientLoginPage />} /><Route path="/agendar/:slug/meus-agendamentos" element={<ClientAppointmentsPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></Suspense></Router></AuthProvider></ThemeProvider>
+  return <ThemeProvider><AuthProvider><Router><Suspense fallback={<main className="center-screen"><Loading label="Abrindo Nayla..." /></main>}><Routes><Route path="/" element={<LandingPage />} /><Route path="/entrar" element={<OwnerLoginPage />} /><Route path="/cadastro" element={<OwnerRegisterPage />} /><Route element={<RequireAuth />}><Route path="/app/boas-vindas" element={<OnboardingPage />} /><Route path="/app" element={<OnboardingGate><AdminShell /></OnboardingGate>}><Route index element={<DashboardPage />} /><Route path="agenda" element={<AgendaPage />} /><Route path="clientes" element={<ClientsPage />} /><Route path="financeiro" element={<FinancePage />} /><Route path="analises" element={<AnalyticsPage />} /><Route path="servicos" element={<ServicesPage />} /><Route path="assistente" element={<AssistantPage />} /><Route path="configuracoes" element={<SettingsPage />} /></Route></Route><Route path="/agendar/:slug" element={<BookingPage />} /><Route path="/agendar/:slug/entrar" element={<ClientLoginPage />} /><Route path="/agendar/:slug/meus-agendamentos" element={<ClientAppointmentsPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></Suspense></Router></AuthProvider></ThemeProvider>
 }

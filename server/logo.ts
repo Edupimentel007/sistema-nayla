@@ -1,9 +1,14 @@
 import express, { type Request, type Response } from 'express';
+import sharp from 'sharp';
 import { db, id } from './db.js';
 
 type Row = Record<string, any>;
 const maxLogoBytes = 1024 * 1024;
+const maxLogoPixels = 16_000_000;
 const mimeTypes = ['image/png', 'image/jpeg', 'image/webp'];
+const imageFormats: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp',
+};
 
 function validImage(bytes: Buffer, mimeType: string) {
   if (mimeType === 'image/png')
@@ -24,18 +29,37 @@ export function businessLogoUrl(businessId: string, slug: string) {
 
 export const parseLogo = express.raw({ type: mimeTypes, limit: maxLogoBytes });
 
-export function uploadBusinessLogo(req: Request, res: Response) {
+export async function sanitizeLogo(bytes: Buffer, mimeType: string) {
+  if (!mimeTypes.includes(mimeType) || !bytes.length || bytes.length > maxLogoBytes ||
+    !validImage(bytes, mimeType)) throw new Error('Invalid logo');
+  const options = { failOn: 'warning' as const, limitInputPixels: maxLogoPixels, pages: 1 };
+  const metadata = await sharp(bytes, options).metadata();
+  if (metadata.format !== imageFormats[mimeType] || !metadata.width || !metadata.height ||
+    metadata.width > 8000 || metadata.height > 8000 || (metadata.pages || 1) > 1)
+    throw new Error('Invalid logo');
+  // Decoding and re-encoding strips EXIF/GPS, embedded comments and trailing
+  // payloads. A single 1024px WebP frame also bounds stored bytes and CPU.
+  const safe = await sharp(bytes, options).rotate()
+    .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 84, effort: 4 }).toBuffer();
+  if (!safe.length || safe.length > maxLogoBytes) throw new Error('Invalid logo');
+  return safe;
+}
+
+export async function uploadBusinessLogo(req: Request, res: Response) {
   const businessId = (res.locals.user as Row).business_id as string;
   const mimeType = (req.get('content-type') || '').split(';')[0].toLowerCase();
   const bytes = req.body;
-  if (!mimeTypes.includes(mimeType) || !Buffer.isBuffer(bytes) || !bytes.length ||
-    bytes.length > maxLogoBytes || !validImage(bytes, mimeType))
+  if (!Buffer.isBuffer(bytes))
     return res.status(400).json({ error: 'Envie uma imagem PNG, JPEG ou WebP válida de até 1 MB.' });
+  let safe: Buffer;
+  try { safe = await sanitizeLogo(bytes, mimeType); }
+  catch { return res.status(400).json({ error: 'Envie uma imagem PNG, JPEG ou WebP válida de até 1 MB.' }); }
   const business = db.prepare('SELECT slug FROM businesses WHERE id=?').get(businessId) as Row;
   db.prepare(`INSERT INTO business_logos(business_id,mime_type,image_data,version)
     VALUES(?,?,?,?) ON CONFLICT(business_id) DO UPDATE SET mime_type=excluded.mime_type,
     image_data=excluded.image_data,version=excluded.version,updated_at=CURRENT_TIMESTAMP`)
-    .run(businessId, mimeType, bytes, id());
+    .run(businessId, 'image/webp', safe, id());
   res.json({ logoUrl: businessLogoUrl(businessId, business.slug) });
 }
 

@@ -7,6 +7,11 @@ export type NotificationStatus = 'pending' | 'opted_out' | 'simulated' | 'not_co
   'accepted' | 'sent' | 'delivered' | 'read' | 'failed';
 export type BookingChangeKind = 'client_rescheduled' | 'client_cancelled' |
   'owner_rescheduled' | 'owner_reschedule_request' | 'owner_cancelled';
+export type ReminderPhase = 'day_before' | 'day_of' | 'hour_before';
+
+const whatsAppColumns = db.pragma('table_info(business_whatsapp_settings)') as { name: string }[];
+if (!whatsAppColumns.some(column => column.name === 'reminder_template_name'))
+  db.exec('ALTER TABLE business_whatsapp_settings ADD COLUMN reminder_template_name TEXT');
 
 export class NotificationError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -71,8 +76,10 @@ export function whatsAppConfig(businessId: string, origin: string) {
     mode: row.mode as WhatsAppMode,
     configured: metaReady(row, row.template_name),
     urgentConfigured: metaReady(row, row.urgent_template_name),
+    reminderConfigured: metaReady(row, row.reminder_template_name),
     templateName: row.template_name || null,
     urgentTemplateName: row.urgent_template_name || null,
+    reminderTemplateName: row.reminder_template_name || null,
     sender: row.sender || null,
     senderVerified: false,
     phoneNumberId: row.phone_number_id || null,
@@ -88,6 +95,7 @@ export type ConfigUpdate = {
   mode: WhatsAppMode;
   templateName: string;
   urgentTemplateName?: string;
+  reminderTemplateName?: string;
   sender: string;
   phoneNumberId: string;
   accessToken?: string | null;
@@ -101,10 +109,11 @@ export function updateWhatsAppSettings(businessId: string, input: ConfigUpdate, 
   const appSecret = input.appSecret === null ? null : input.appSecret?.trim()
     ? encryptSecret(input.appSecret.trim(), businessId) : previous.app_secret_encrypted;
   db.prepare(`UPDATE business_whatsapp_settings
-    SET mode=?,template_name=?,urgent_template_name=?,sender=?,phone_number_id=?,access_token_encrypted=?,
+    SET mode=?,template_name=?,urgent_template_name=?,reminder_template_name=?,sender=?,phone_number_id=?,access_token_encrypted=?,
       app_secret_encrypted=?,updated_at=CURRENT_TIMESTAMP WHERE business_id=?`)
     .run(input.mode, input.templateName.trim() || null,
       input.urgentTemplateName === undefined ? previous.urgent_template_name : input.urgentTemplateName.trim() || null,
+      input.reminderTemplateName === undefined ? previous.reminder_template_name : input.reminderTemplateName.trim() || null,
       input.sender.trim() || null,
       input.phoneNumberId.trim() || null, accessToken, appSecret, businessId);
   return whatsAppConfig(businessId, origin);
@@ -131,9 +140,9 @@ type OutgoingNotification = {
   businessId: string;
   appointmentId: string;
   recipient: string;
-  kind: 'booking_confirmation' | BookingChangeKind;
+  kind: 'booking_confirmation' | BookingChangeKind | `reminder_${ReminderPhase}`;
   message: string;
-  template: 'confirmation' | 'urgent';
+  template: 'confirmation' | 'urgent' | 'reminder';
   parameters: string[];
 };
 
@@ -143,7 +152,8 @@ async function dispatchNotification(details: OutgoingNotification): Promise<Noti
     WHERE a.id=? AND a.business_id=?`).get(details.appointmentId, details.businessId) as Row | undefined;
   if (!consent) throw new NotificationError(404, 'Agendamento não encontrado.');
   const settings = ensureWhatsAppSettings(details.businessId);
-  const templateName = details.template === 'urgent' ? settings.urgent_template_name : settings.template_name;
+  const templateName = details.template === 'urgent' ? settings.urgent_template_name :
+    details.template === 'reminder' ? settings.reminder_template_name : settings.template_name;
   const recipient = recipientNumber(details.recipient);
   const consentGranted = Boolean(consent.booking_consent && consent.client_consent);
   const initialStatus: NotificationStatus = !consentGranted ? 'opted_out' :
@@ -213,6 +223,26 @@ export async function sendBookingConfirmation(details: Confirmation): Promise<No
     message: `Olá, ${details.clientName}! Seu agendamento com ${business.name} para ${details.serviceName} está confirmado: ${day}, ${formattedDate}, às ${details.time}. Até lá!`,
     parameters: [details.clientName, business.name, details.serviceName, day, formattedDate, details.time],
   });
+}
+
+export async function sendAppointmentReminder(details: Confirmation & { phase: ReminderPhase }):
+  Promise<NotificationStatus | null> {
+  const current = db.prepare(`SELECT a.date,a.start_time,a.status,s.name AS service_name
+    FROM appointments a JOIN services s ON s.id=a.service_id
+    WHERE a.id=? AND a.business_id=?`).get(details.appointmentId, details.businessId) as Row | undefined;
+  if (!current || !['pending', 'confirmed'].includes(current.status) ||
+    current.date !== details.date || current.start_time !== details.time ||
+    current.service_name !== details.serviceName) return null;
+  const business = db.prepare('SELECT name FROM businesses WHERE id=?').get(details.businessId) as Row | undefined;
+  if (!business) throw new NotificationError(404, 'Espaço não encontrado.');
+  const when = details.phase === 'day_before' ? 'amanhã' :
+    details.phase === 'day_of' ? 'hoje' : 'em 1 hora';
+  const message = `Olá, ${details.clientName}! Lembrete: seu atendimento de ${details.serviceName} com ${business.name} é ${when}, ${weekday(details.date)}, ${dateLabel(details.date)} às ${details.time}.`;
+  return dispatchNotification({ businessId: details.businessId,
+    appointmentId: details.appointmentId, recipient: details.recipient,
+    kind: `reminder_${details.phase}`, template: 'reminder', message,
+    parameters: [details.clientName, business.name, details.serviceName,
+      weekday(details.date), dateLabel(details.date), details.time, when] });
 }
 
 export type BookingChange = Confirmation & {

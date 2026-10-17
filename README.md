@@ -36,6 +36,7 @@ Links locais:
 | Início | `http://localhost:3001/` |
 | Cadastro da empreendedora | `http://localhost:3001/cadastro` |
 | Login da empreendedora | `http://localhost:3001/entrar` |
+| Apresentação e planos | `http://localhost:3001/app/boas-vindas` |
 | Painel | `http://localhost:3001/app` |
 | Análises | `http://localhost:3001/app/analises` |
 | Configurações e confirmações | `http://localhost:3001/app/configuracoes` |
@@ -83,6 +84,20 @@ O Google retorna à API, que valida estado, PKCE, assinatura, emissor, público,
 
 Nos aplicativos Android e iOS, a autenticação abre o navegador seguro do sistema e retorna pelo link `com.edupimentel.nayla://auth`; o código de uso único só pode ser trocado pela instância do app que iniciou a operação. O retorno requer a API HTTPS configurada em `VITE_API_ORIGIN`, a sincronização Capacitor e teste real em cada plataforma. O cliente OAuth do Google continua sendo do tipo **Aplicativo da Web**, pois o redirecionamento registrado aponta para a API HTTPS.
 
+### Planos e pagamentos Mercado Pago
+
+Siga o [passo a passo de configuração do Mercado Pago](MERCADO_PAGO_SETUP.md) para ligar sua conta recebedora sem expor tokens ou dados bancários.
+
+No primeiro acesso, a profissional conhece os recursos e vê os planos **mensal de R$ 49,90** e **anual de R$ 420**. O anual foi definido como **uma compra de R$ 420 no cartão, parcelável em 12x de R$ 35 sem juros na fatura**, ou R$ 420 no Pix. O checkout do cartão é hospedado pelo Mercado Pago; a Nayla não recebe número do cartão nem CVV. O Pix vem da API com QR dinâmico e código copia e cola. Os pagamentos desta versão são avulsos: o mensal vale um mês de calendário e o anual um ano após confirmação; ainda não há renovação automática nem cancelamento de assinatura recorrente.
+
+O Mercado Pago permite limitar o checkout anual a 12 parcelas, mas **12x sem juros exige ativar essa condição na conta recebedora**; o custo do financiamento fica com o vendedor. Confira valor final e parcelas no checkout antes de pagar. [Documentação de parcelamento do Mercado Pago](https://www.mercadopago.com.br/blog/checkout-pro-parcelamento-sem-juros).
+
+Para conectar sua conta recebedora, [crie uma aplicação em Suas integrações](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/create-application), obtenha o **Access Token** de teste e depois o de produção, e cadastre um webhook de pagamentos em `https://SEU-DOMINIO/api/billing/webhooks/mercado-pago`. Coloque `MERCADO_PAGO_ACCESS_TOKEN` e `MERCADO_PAGO_WEBHOOK_SECRET` somente nas variáveis protegidas **do servidor**; guarde a assinatura secreta do webhook no mesmo cofre. Configure o banco/recebimento **dentro da sua conta Mercado Pago**, nunca no código nem no chat. `APP_ORIGIN` deve ser o domínio público HTTPS da Nayla: o Mercado Pago não aceita `localhost` como URL de retorno do checkout. Teste com credenciais de teste antes de usar produção. O app só ativa o plano após validar a assinatura do webhook e consultar o pagamento na API do Mercado Pago; o retorno do navegador sozinho não prova pagamento. [Webhooks oficiais](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/payment-notifications), [URLs de retorno](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/configure-back-urls).
+
+**Teste grátis:** a regra solicitada é **30 dias, com cartão obrigatório e sem cobrança inicial**. Ela **não está ativa** nesta versão: um link comum de cobrança do Mercado Pago cobra na hora e não comprova um cartão salvo para a Nayla. A API não inicia o prazo pelo simples cadastro nem aceita um retorno de navegador como verificação. A [solução Pagamentos Automáticos do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/automatic-payments-orders/overview) documenta o registro de cartão para uso futuro, mas depende de autorização comercial. Depois de habilitada e integrada essa validação, o teste poderá começar na confirmação verificável; ao terminar, a profissional deverá concluir a compra anual parcelada em um novo checkout, porque o fluxo documentado de assinatura recorrente não representa uma compra única em 12 parcelas. No ambiente local **sem credenciais de pagamento**, o painel fica acessível para demonstração, sem iniciar o teste comercial; em produção, só um plano confirmado libera o painel até que a validação de cartão seja implementada.
+
+Os pacotes Android e iOS mostram o estado da conta, mas **não oferecem checkout Mercado Pago dentro do app**. Para uma assinatura de recursos digitais, [Google Play](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en) e [App Store](https://developer.apple.com/app-store/review/guidelines/) têm regras próprias de cobrança e links externos. A compra pelo Mercado Pago fica na versão web; antes de enviar às lojas, confirme o modelo de distribuição e as exigências atuais de cada plataforma.
+
 ### Confirmação por WhatsApp
 
 No ambiente local, `WHATSAPP_MODE=simulate` gera uma confirmação no histórico em **Configurações**, sem contato com a Meta ou envio ao telefone. O painel identifica essas mensagens como **simuladas**. A empreendedora pode abrir a conversa com o texto preparado e confirmar manualmente o envio no WhatsApp. O agendamento permanece disponível mesmo quando as mensagens estão desativadas.
@@ -102,7 +117,15 @@ Disponibilidade: {{4}}
 Responda com o motivo da alteração e, se precisar remarcar, o melhor horário para você.
 ```
 
-Os dois nomes de modelo são configurados por empreendedora em **Configurações**. Confirme no painel da Meta que cada modelo foi aprovado e que seu texto corresponde ao exemplo: a Nayla registra uma prévia local, enquanto o envio real usa o corpo do modelo aprovado na Meta. Alterações da cliente e pedidos da profissional registram um aviso no histórico mesmo se o envio estiver desativado ou sem credenciais. Uma etiqueta nativa de conversa do WhatsApp Business não é aplicada por essa API; **RESPONDER URGENTE** aparece na prévia e no histórico da Nayla. As respostas das clientes devem ser acompanhadas na conta WhatsApp conectada; a Nayla ainda não recebe respostas pelo webhook nem remarca sozinha a partir delas.
+Para lembretes, cadastre um **terceiro modelo aprovado em `pt_BR`** com sete parâmetros: cliente, espaço, serviço, dia da semana, data, horário e antecedência (`amanhã`, `hoje` ou `em 1 hora`). Texto sugerido:
+
+```text
+Olá, {{1}}! Lembrete: seu atendimento de {{3}} com {{2}} é {{7}}, {{4}}, {{5}} às {{6}}.
+```
+
+Os três nomes de modelo são configurados por empreendedora em **Configurações**. Confirme no painel da Meta que cada modelo foi aprovado e que seu texto corresponde ao exemplo: a Nayla registra uma prévia local, enquanto o envio real usa o corpo do modelo aprovado na Meta. Alterações da cliente e pedidos da profissional registram um aviso no histórico mesmo se o envio estiver desativado ou sem credenciais. Uma etiqueta nativa de conversa do WhatsApp Business não é aplicada por essa API; **RESPONDER URGENTE** aparece na prévia e no histórico da Nayla. As respostas das clientes devem ser acompanhadas na conta WhatsApp conectada; a Nayla ainda não recebe respostas pelo webhook nem remarca sozinha a partir delas.
+
+A caixa de avisos do app mostra novos agendamentos, alterações e cancelamentos para a profissional e lembretes para a cliente. Os lembretes são preparados **24 horas antes**, **no dia às 07h no fuso de São Paulo** (ou duas horas antes quando o atendimento é cedo) e **1 hora antes**, sempre com serviço, data e horário. Um agendamento criado após um desses prazos não recebe o respectivo lembrete atrasado. A rotina roda a cada minuto enquanto a API está em execução, recupera pendências após reiniciar e registra cada prazo uma só vez. Horários expirados e lembretes de agendamentos alterados ou cancelados são descartados. O aviso do navegador depende de permissão e da página aberta; alertas do sistema operacional com o app fechado exigem a futura configuração de push remoto. O WhatsApp só é acionado quando a cliente autorizou, a profissional configurou a Cloud API e o terceiro modelo foi aprovado. Em uma interrupção durante a chamada à Meta, um envio de resultado incerto não é repetido automaticamente para evitar mensagens duplicadas.
 
 A cliente escolhe receber mensagens pelo WhatsApp no formulário de agendamento. O sistema registra essa escolha e só tenta enviar para quem autorizou. O histórico diferencia uma mensagem **aceita pela Meta** de uma mensagem **enviada, entregue ou lida**; os últimos estados dependem do webhook da Meta. Cada empreendedora recebe no painel a URL e o token de verificação do seu webhook para cadastrar no aplicativo Meta dela. A URL precisa ser pública e HTTPS; `localhost` não é alcançável pela Meta. Em produção, sem configuração do negócio, as mensagens ficam desativadas.
 

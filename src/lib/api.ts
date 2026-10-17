@@ -25,6 +25,27 @@ export type Business = {
 export type User = { id: string; name: string; email: string; role: 'owner' }
 export type Session = { user: User; business: Business }
 
+export type BillingPlan = 'monthly' | 'annual'
+export type BillingMethod = 'card' | 'pix'
+export type Subscription = {
+  plan: BillingPlan | null
+  status: 'active' | 'pending' | 'none' | 'past_due' | 'canceled'
+  onboardingCompleted: boolean
+  providerConfigured: boolean
+  trialEndsAt: string | null
+  trialDaysRemaining: number
+  trialRequiresCard: boolean
+  trialAvailable: boolean
+  accessGranted: boolean
+  checkoutUrl?: string
+  currentPeriodEnd?: string
+}
+export type BillingCheckout = {
+  status: 'pending'
+  checkoutUrl?: string
+  pix?: { payload: string; encodedImage: string; expiresAt?: string }
+}
+
 export type Service = {
   id: string
   name: string
@@ -89,8 +110,10 @@ export type WhatsAppConfig = {
   mode: 'simulate' | 'meta' | 'disabled'
   configured: boolean
   urgentConfigured: boolean
+  reminderConfigured: boolean
   templateName: string | null
   urgentTemplateName: string | null
+  reminderTemplateName: string | null
   sender: string | null
   phoneNumberId: string | null
   hasAccessToken: boolean
@@ -103,6 +126,7 @@ export type WhatsAppConfigUpdate = {
   mode: WhatsAppConfig['mode']
   templateName: string
   urgentTemplateName: string
+  reminderTemplateName?: string
   sender: string
   phoneNumberId: string
   accessToken?: string
@@ -120,6 +144,16 @@ export type Notification = {
   updatedAt: string
   canContact?: boolean
 }
+export type InboxItem = {
+  id: string
+  appointmentId: string
+  kind: string
+  title: string
+  message: string
+  readAt: string | null
+  createdAt: string
+}
+export type Inbox = { unread: number; items: InboxItem[] }
 
 export class ApiError extends Error {
   status: number
@@ -196,6 +230,13 @@ export const api = {
       method: 'POST', body: json({ role, ticket, appNonce, ...data }),
     }),
   me: () => request<Session>('/api/auth/me'),
+  subscription: () => request<Subscription>('/api/billing/subscription'),
+  completeOnboarding: () => request<{ onboardingCompleted: boolean }>('/api/billing/onboarding', {
+    method: 'PATCH', body: json({ completed: true }),
+  }),
+  billingCheckout: (plan: BillingPlan, method: BillingMethod, cpfCnpj?: string) => request<BillingCheckout>('/api/billing/checkout', {
+    method: 'POST', body: json({ plan, method, ...(method === 'pix' ? { cpfCnpj } : {}) }),
+  }),
   logout: () => logoutSession('owner', '/api/auth/logout'),
   deleteOwnerAccount: async (password: string) => {
     await request<void>('/api/auth/account', { method: 'DELETE', body: JSON.stringify({ password }) })
@@ -232,6 +273,10 @@ export const api = {
   updateWhatsappConfig: (data: WhatsAppConfigUpdate) =>
     request<WhatsAppConfig>('/api/notifications/config', { method: 'PATCH', body: json(data) }),
   notifications: () => request<Notification[]>('/api/notifications?limit=50'),
+  ownerInbox: () => request<Inbox>('/api/inbox'),
+  readOwnerInbox: (id: string) => request<void>(`/api/inbox/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+  clientInbox: () => request<Inbox>('/api/client/inbox'),
+  readClientInbox: (id: string) => request<void>(`/api/client/inbox/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
   publicBusiness: (slug: string) => request<PublicBusiness>(`/api/public/${encodeURIComponent(slug)}`),
   availability: (slug: string, serviceId: string, date: string) =>
     request<{ slots: string[] }>(`/api/public/${encodeURIComponent(slug)}/availability?${query({ serviceId, date })}`),

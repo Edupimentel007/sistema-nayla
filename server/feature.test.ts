@@ -7,6 +7,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import sharp from 'sharp';
 
 let child: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -139,7 +140,8 @@ describe('recursos Nayla', () => {
       owner('Cris Oliveira', 'cris-logo', 'cris-logo@example.test', 'cilios')) });
     assert.equal(first.status, 201);
     assert.equal(second.status, 201);
-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9cHrsAAAAASUVORK5CYII=', 'base64');
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3,
+      background: '#b57c91' } }).png().toBuffer();
     const uploaded = await fetch(`${baseUrl}/api/business/logo`, { method: 'POST',
       headers: { Cookie: first.cookie!, 'Content-Type': 'image/png' }, body: png });
     assert.equal(uploaded.status, 200);
@@ -151,8 +153,9 @@ describe('recursos Nayla', () => {
     assert.equal(ownerB.body.logoUrl, null);
     const publicA = await fetch(`${baseUrl}${url}`);
     assert.equal(publicA.status, 200);
-    assert.equal(publicA.headers.get('content-type'), 'image/png');
-    assert.deepEqual(Buffer.from(await publicA.arrayBuffer()), png);
+    assert.equal(publicA.headers.get('content-type'), 'image/webp');
+    assert.notDeepEqual(Buffer.from(await publicA.arrayBuffer()), png);
+    assert.equal(publicA.headers.get('x-content-type-options'), 'nosniff');
     assert.equal((await fetch(`${baseUrl}/api/public/cris-logo/logo`)).status, 404);
     const deletedByB = await request('/api/business/logo', { method: 'DELETE' }, second.cookie);
     assert.equal(deletedByB.status, 200);

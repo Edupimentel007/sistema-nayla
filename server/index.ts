@@ -14,12 +14,20 @@ import { answerAssistant } from './assistant.js';
 import { businessLogoUrl, deleteBusinessLogo, parseLogo, publicBusinessLogo, uploadBusinessLogo } from './logo.js';
 import { analyticsRouter } from './analytics.js';
 import { GoogleAuthError, mountGoogleAuth } from './googleAuth.js';
+import { billingAccessForBusiness, billingRouter, billingWebhookRouter,
+  requireBillingAccess } from './billing.js';
+import { assertProductionSecurityConfiguration, browserRequestGuard, securityHeaders } from './security.js';
+import { listInbox, markInboxRead, notifyOfBookingChange,
+  notifyOwnerOfBooking, startReminderWorker } from './inbox.js';
 
 type Row = Record<string, any>;
 type User = Row & { id: string; business_id: string; role: 'owner' | 'client' };
 const app = express();
+assertProductionSecurityConfiguration();
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '1');
+app.use(securityHeaders);
+app.use(browserRequestGuard);
 app.use(express.json({ limit: '32kb', verify: (req, _res, body) => {
   (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(body);
 } }));
@@ -32,7 +40,7 @@ function nativeRequest(req: Request) {
 }
 app.use((req, res, next) => {
   const origin = req.get('origin');
-  const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
+  const sameOrigin = process.env.NODE_ENV !== 'production' && origin === `${req.protocol}://${req.get('host')}`;
   const allowed = Boolean(origin && (nativeOrigins.has(origin) || origin === configuredWebOrigin || sameOrigin));
   if (allowed) {
     res.vary('Origin');
@@ -116,7 +124,11 @@ function requireRole(role: 'owner' | 'client') {
     next();
   };
 }
-const owner = requireRole('owner');
+const authenticatedOwner = requireRole('owner');
+const owner = (req: Request, res: Response, next: NextFunction) =>
+  authenticatedOwner(req, res, () => requireBillingAccess(req, res, next));
+app.use('/api/billing/webhooks', billingWebhookRouter);
+app.use('/api/billing', authenticatedOwner, billingRouter);
 app.use('/api/analytics', owner, analyticsRouter);
 app.use('/api/auth/google', rateLimit(20));
 function currentUser(res: Response): User { return res.locals.user as User; }
@@ -218,7 +230,7 @@ app.post('/api/auth/login', rateLimit(15), async (req, res) => {
   const session = createSession(req, res, user, input.remember);
   res.json({ user: userDto(user), business: businessById(user.business_id), ...session });
 });
-app.get('/api/auth/me', owner, (_req, res) => {
+app.get('/api/auth/me', authenticatedOwner, (_req, res) => {
   const user = currentUser(res);
   res.json({ user: userDto(user), business: businessById(user.business_id) });
 });
@@ -227,7 +239,7 @@ app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(cookieName('owner'), { path: '/' });
   res.status(204).end();
 });
-app.delete('/api/auth/account', owner, rateLimit(10), async (req, res) => {
+app.delete('/api/auth/account', authenticatedOwner, rateLimit(10), async (req, res) => {
   const { password: suppliedPassword } = z.object({ password: z.string().min(1).max(100) }).parse(req.body);
   const user = currentUser(res);
   if (!await bcrypt.compare(suppliedPassword, user.password_hash))
@@ -246,7 +258,7 @@ app.delete('/api/auth/account', owner, rateLimit(10), async (req, res) => {
 });
 
 app.get('/api/business', owner, (_req, res) => res.json(businessById(currentUser(res).business_id)));
-app.post('/api/business/logo', owner, parseLogo, uploadBusinessLogo);
+app.post('/api/business/logo', owner, rateLimit(10), parseLogo, uploadBusinessLogo);
 app.delete('/api/business/logo', owner, deleteBusinessLogo);
 app.get('/api/public/:slug/logo', publicBusinessLogo);
 app.patch('/api/business', owner, (req, res) => {
@@ -523,6 +535,7 @@ app.get('/api/public/:slug', (req, res) => {
 });
 app.get('/api/public/:slug/availability', (req, res) => {
   const business = publicBusiness(String(req.params.slug));
+  if (!billingAccessForBusiness(business.id)) return res.json({ slots: [] });
   const input = z.object({ serviceId: z.uuid(), date,
     excludeAppointmentId: z.uuid().optional() }).parse(req.query);
   if (input.excludeAppointmentId) {
@@ -546,6 +559,8 @@ const bookingInput = z.object({ serviceId: z.uuid(), date, time,
   remember: z.boolean().default(false), client: clientDetails.optional() });
 app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
   const business = publicBusiness(String(req.params.slug));
+  if (!billingAccessForBusiness(business.id))
+    throw new ApiError(503, 'Este espaço está temporariamente indisponível para novos agendamentos.');
   const input = bookingInput.parse(req.body);
   const service = serviceForBusiness(business.id, input.serviceId);
   let bookingClient = getSessionUser(req, 'client');
@@ -597,6 +612,8 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
       price_cents,whatsapp_opt_in) VALUES(?,?,?,?,?,?,?,'confirmed',?,?)`)
       .run(appointmentId, business.id, user.id, service.id, input.date, input.time,
         end, service.price_cents, Number(bookingConsent));
+    notifyOwnerOfBooking({ businessId: business.id, appointmentId,
+      clientName: user.name, serviceName: service.name, date: input.date, time: input.time });
     return user;
   }).immediate();
   const session = createSession(req, res, result, input.remember);
@@ -738,16 +755,18 @@ function assertExpectedAppointment(row: Row, input: z.infer<typeof expectedAppoi
 }
 function recordAppointmentEvent(actor: ChangeActor, kind: ChangeKind, previous: Row,
   next: Row, reason?: string) {
+  const eventId = id();
   db.prepare(`INSERT INTO appointment_events
     (id,business_id,appointment_id,actor,kind,reason,previous_service_id,previous_date,previous_time,
       new_service_id,new_date,new_time) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(id(), previous.business_id, previous.id, actor,
+    .run(eventId, previous.business_id, previous.id, actor,
       kind === 'owner_reschedule_request' ? 'reschedule_requested' :
         kind.endsWith('cancelled') ? 'cancelled' : 'rescheduled',
       reason || null, previous.service_id, previous.date, previous.start_time,
       next.status === 'cancelled' ? null : next.service_id,
       next.status === 'cancelled' ? null : next.date,
       next.status === 'cancelled' ? null : next.start_time);
+  return eventId;
 }
 async function notifyAppointmentChange(kind: ChangeKind, previous: Row, next: Row,
   reason?: string) {
@@ -783,8 +802,12 @@ async function rescheduleAppointment(req: Request, res: Response, actor: ChangeA
       updated_at=CURRENT_TIMESTAMP WHERE id=? AND business_id=?`)
       .run(service.id, day, startTime, endTime, service.price_cents, before.id, businessId);
     const after = getAppointment(businessId, before.id)!;
-    recordAppointmentEvent(actor, actor === 'client' ? 'client_rescheduled' : 'owner_rescheduled',
+    const eventId = recordAppointmentEvent(actor,
+      actor === 'client' ? 'client_rescheduled' : 'owner_rescheduled',
       before, after, input.reason);
+    notifyOfBookingChange({ businessId, appointmentId: before.id, clientId: before.client_id,
+      actor, eventId, cancelled: false, clientName: before.client_name,
+      serviceName: after.service_name, date: after.date, time: after.start_time });
     return { before, after };
   }).immediate();
   const notificationStatus = await notifyAppointmentChange(
@@ -804,7 +827,11 @@ async function cancelAppointment(req: Request, res: Response,
     db.prepare(`UPDATE appointments SET status='cancelled',updated_at=CURRENT_TIMESTAMP
       WHERE id=? AND business_id=?`).run(before.id, user.business_id);
     const after = getAppointment(user.business_id, before.id)!;
-    recordAppointmentEvent(actor, kind, before, after, reason);
+    const eventId = recordAppointmentEvent(actor, kind, before, after, reason);
+    notifyOfBookingChange({ businessId: user.business_id, appointmentId: before.id,
+      clientId: before.client_id, actor, eventId, cancelled: true,
+      clientName: before.client_name, serviceName: before.service_name,
+      date: before.date, time: before.start_time });
     return { before, after };
   }).immediate();
   const notificationStatus = await notifyAppointmentChange(kind, changed.before, changed.after, reason);
@@ -945,6 +972,8 @@ app.patch('/api/notifications/config', owner, (req, res) => {
     templateName: z.string().trim().max(100).refine(value => !value || /^[a-z0-9_]+$/.test(value)).default(''),
     urgentTemplateName: z.string().trim().max(100)
       .refine(value => !value || /^[a-z0-9_]+$/.test(value)).optional(),
+    reminderTemplateName: z.string().trim().max(100)
+      .refine(value => !value || /^[a-z0-9_]+$/.test(value)).optional(),
     sender: z.string().trim().max(35).default(''),
     phoneNumberId: z.string().trim().max(40).refine(value => !value || /^\d+$/.test(value)).default(''),
     accessToken: z.string().trim().max(2048).nullable().optional(),
@@ -967,6 +996,31 @@ app.get('/api/notifications', owner, (req, res) => {
     providerMessageId: row.provider_message_id, error: row.error,
     canContact: Boolean(row.booking_consent && row.client_consent),
     createdAt: row.created_at, updatedAt: row.updated_at })));
+});
+
+app.get('/api/inbox', owner, (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
+  const user = currentUser(res);
+  res.json(listInbox(user.id, user.business_id, limit));
+});
+app.patch('/api/inbox/:id/read', owner, (req, res) => {
+  const user = currentUser(res);
+  const notificationId = z.uuid().parse(req.params.id);
+  if (!markInboxRead(user.id, user.business_id, notificationId))
+    throw new ApiError(404, 'Notificação não encontrada.');
+  res.status(204).end();
+});
+app.get('/api/client/inbox', (req, res) => {
+  const user = clientForRequest(req, res);
+  const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 50);
+  res.json(listInbox(user.id, user.business_id, limit));
+});
+app.patch('/api/client/inbox/:id/read', (req, res) => {
+  const user = clientForRequest(req, res);
+  const notificationId = z.uuid().parse(req.params.id);
+  if (!markInboxRead(user.id, user.business_id, notificationId))
+    throw new ApiError(404, 'Notificação não encontrada.');
+  res.status(204).end();
 });
 
 app.get('/api/webhooks/whatsapp/:key', (req, res) => {
@@ -998,6 +1052,12 @@ app.use((_req, res, next) => {
   res.sendFile(indexPath);
 });
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const parserType = error && typeof error === 'object' && 'type' in error
+    ? (error as { type?: unknown }).type : undefined;
+  if (parserType === 'entity.parse.failed')
+    return res.status(400).json({ error: 'JSON inválido.' });
+  if (parserType === 'entity.too.large')
+    return res.status(413).json({ error: 'Dados enviados excedem o limite permitido.' });
   if (error instanceof ZodError) return res.status(400).json({ error: 'Dados inválidos.', details: error.issues.map(issue => ({
     field: issue.path.join('.'), message: issue.message,
   })) });
@@ -1006,9 +1066,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof NotificationError) return res.status(error.status).json({ error: error.message });
   if (error instanceof Error && /SQLITE_CONSTRAINT/.test(error.message))
     return res.status(409).json({ error: 'Este registro já existe ou está em uso.' });
-  console.error('API error', error);
+  // Parser errors may contain the request body, including passwords or tokens.
+  // Never log the raw error object or request payload.
+  console.error('API error', error instanceof Error ? error.constructor.name : 'UnknownError');
   res.status(500).json({ error: 'Não foi possível concluir a solicitação.' });
 });
 
 const port = Number(process.env.PORT || 3001);
+startReminderWorker();
 app.listen(port, () => console.log(`Nayla API disponível em http://localhost:${port}`));

@@ -3,7 +3,8 @@ node_modules/
 .npm-cache/
 dist/
 .env
-.env.*.local
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal

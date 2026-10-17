@@ -89,6 +89,22 @@ describe('Nayla API', () => {
       rmSync(tempDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
+  it('rejects malformed and oversized JSON without exposing credentials in responses or logs', async () => {
+    const secret = 'NAYLA_TEST_SECRET_DO_NOT_LOG_2026';
+    const malformed = await fetch(`${baseUrl}/api/auth/login`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: `{"password":"${secret}"` });
+    assert.equal(malformed.status, 400);
+    assert.equal(JSON.stringify(await malformed.json()).includes(secret), false);
+    const oversized = await fetch(`${baseUrl}/api/auth/login`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: secret.repeat(1300) }) });
+    assert.equal(oversized.status, 413);
+    assert.equal(JSON.stringify(await oversized.json()).includes(secret), false);
+    await new Promise(resolveWait => setTimeout(resolveWait, 20));
+    assert.equal(serverOutput.includes(secret), false);
+  });
+
   it('isolates tenants and prevents booking conflicts while keeping CRM, finance and client portal connected', { timeout: 30_000 }, async () => {
     const first = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Ana Silva', businessName: 'Ateliê Ana', slug: 'atelie-ana-test',
@@ -168,6 +184,16 @@ describe('Nayla API', () => {
     expect(booked.status).toBe(201);
     expect(booked.body.notificationStatus).toBe('opted_out');
     const clientCookie = booked.cookie!;
+    const ownerInbox = await request('/api/inbox', {}, ownerCookie);
+    expect(ownerInbox.status).toBe(200);
+    expect(ownerInbox.body.items.some((item: any) => item.appointmentId === booked.body.appointment.id
+      && item.kind === 'new_booking')).toBe(true);
+    expect((await request('/api/inbox', {}, otherCookie)).body.items).toHaveLength(0);
+    const ownerNoticeId = ownerInbox.body.items[0].id as string;
+    expect((await request(`/api/client/inbox/${ownerNoticeId}/read`,
+      { method: 'PATCH' }, clientCookie)).status).toBe(404);
+    expect((await request(`/api/inbox/${ownerNoticeId}/read`,
+      { method: 'PATCH' }, ownerCookie)).status).toBe(204);
     const duplicate = await request('/api/public/atelie-ana-test/bookings', {
       method: 'POST', body: JSON.stringify(bookingBody),
     }, clientCookie);
@@ -515,6 +541,9 @@ describe('Nayla API', () => {
       expect(changed.body.date).toBe(newDay);
       expect(changed.body.serviceId).toBe(secondService.id);
       expect(changed.body.notificationStatus).toBe('simulated');
+      const inboxAfterChange = await request('/api/inbox', {}, ownerCookie);
+      expect(inboxAfterChange.body.items.some((item: any) => item.appointmentId === firstId
+        && item.kind === 'booking_changed')).toBe(true);
       const oldAvailability = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${firstService.id}&date=${day}`);
       expect(oldAvailability.body.slots).toContain(firstTime);
       const newAvailability = await request(`/api/public/espaco-lia-remarcacao/availability?serviceId=${secondService.id}&date=${newDay}`);

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Check, MessageCircle } from 'lucide-react'
 import { api, type ClientSession } from '../../lib/api'
 import { Panel } from '../shared'
+import { ClientInboxPanel } from '../InboxNotifications'
 
 export function ClientWhatsAppPreference({ slug, client, onUpdated }: { slug: string; client: ClientSession; onUpdated: (value: ClientSession) => void }) {
   const [optIn, setOptIn] = useState(Boolean(client.client.whatsappOptIn))
@@ -16,5 +17,5 @@ export function ClientWhatsAppPreference({ slug, client, onUpdated }: { slug: st
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível salvar sua preferência.') }
     finally { setSaving(false) }
   }
-  return <Panel className="client-preference-panel"><div className="client-preference-icon"><MessageCircle size={22}/></div><div className="client-preference-body"><h2>Mensagens pelo WhatsApp</h2><p>Escolha se deseja receber avisos automáticos de confirmação, alteração e cancelamento no seu telefone. Você também pode decidir isso em cada novo agendamento.</p><form onSubmit={save}><label className="whatsapp-opt-in"><input type="checkbox" checked={optIn} onChange={event => { setOptIn(event.target.checked); setSaved(false) }}/><span><strong>Autorizo avisos de agendamento pelo WhatsApp</strong><small>Esta preferência vale para futuros agendamentos neste espaço.</small></span></label>{changed ? <button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar preferência'}</button> : null}{saved ? <span className="form-success" role="status"><Check size={16}/> Preferência salva.</span> : null}{error ? <span className="form-error" role="alert">{error}</span> : null}</form></div></Panel>
+  return <><ClientInboxPanel/><Panel className="client-preference-panel"><div className="client-preference-icon"><MessageCircle size={22}/></div><div className="client-preference-body"><h2>Mensagens pelo WhatsApp</h2><p>Escolha se deseja receber avisos automáticos de confirmação, alteração, cancelamento e lembretes no seu telefone. Você também pode decidir isso em cada novo agendamento.</p><form onSubmit={save}><label className="whatsapp-opt-in"><input type="checkbox" checked={optIn} onChange={event => { setOptIn(event.target.checked); setSaved(false) }}/><span><strong>Autorizo avisos de agendamento pelo WhatsApp</strong><small>Esta preferência vale para futuros agendamentos neste espaço.</small></span></label>{changed ? <button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar preferência'}</button> : null}{saved ? <span className="form-success" role="status"><Check size={16}/> Preferência salva.</span> : null}{error ? <span className="form-error" role="alert">{error}</span> : null}</form></div></Panel></>
 }
