@@ -89,7 +89,7 @@ export function getAssistantFinance(businessId: string, request: AssistantRangeR
     categories: categories.map(row => ({ type: row.type,
       category: safeLabel(String(row.category || 'Sem categoria')),
       amount: money(Number(row.cents)), entries: Number(row.entries) })),
-    definition: 'Entradas e despesas registradas no Financeiro, inclusive lançamentos manuais. Saldo não é lucro líquido nem saldo bancário.',
+    definition: 'Entradas e despesas registradas no Financeiro, inclusive lançamentos manuais. incomeEntries e expenseEntries contam lançamentos, não atendimentos. Estes dados não vinculam entradas a clientes ou serviços. Saldo não é lucro líquido nem saldo bancário.',
   };
 }
 
