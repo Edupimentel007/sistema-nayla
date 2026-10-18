@@ -1,5 +1,9 @@
 type Service = { name: string; category: string; duration_minutes: number; price_cents: number };
-export type AssistantBusiness = { name: string; slug: string; specialties: string[]; services: Service[] };
+export type AssistantBusiness = {
+  name: string; slug: string; specialties: string[]; services: Service[];
+  description?: string; address?: string; startTime?: string; endTime?: string;
+  workdays?: number[]; slotInterval?: number;
+};
 
 const labels: Record<string, string> = {
   unhas: 'unhas', sobrancelhas: 'sobrancelhas', cilios: 'cílios', cabelos: 'cabelos',

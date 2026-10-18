@@ -982,7 +982,7 @@ app.get('/api/dashboard', owner, (req, res) => {
   });
 });
 
-app.get('/api/assistant/status', owner, (_req, res) => res.json(assistantStatus()));
+app.get('/api/assistant/status', owner, async (_req, res) => res.json(await assistantStatus()));
 app.post('/api/assistant', owner, rateLimit(60, 60_000), async (req, res) => {
   const { message, history } = z.object({
     message: z.string().trim().min(2).max(1000),

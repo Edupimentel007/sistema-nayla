@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowUp, CalendarDays, CircleDollarSign, Heart, Sparkles } from 'lucide-react'
-import { api, type Appointment, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { ArrowUp, CalendarDays, CircleDollarSign, Heart, RotateCcw, Sparkles } from 'lucide-react'
+import { api, type Appointment, type AssistantStatus, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
 import { useAuth } from '../contexts'
 import { dateTime, PageHeading, Panel } from '../shared'
 import './admin-updates.css'
 import './admin-motion.css'
+import './assistant-chat.css'
 
 type Message = { id: string; role: 'user' | 'assistant'; text: string }
 type ActionKind = 'reschedule-request' | 'cancel-by-owner'
@@ -22,9 +23,18 @@ const prompts = [
   { icon: <CalendarDays size={18}/>, text: 'Quais são os atendimentos de hoje?' },
   { icon: <Heart size={18}/>, text: 'Quais clientes não voltaram há mais de um mês?' },
   { icon: <Sparkles size={18}/>, text: 'Preciso remarcar uma cliente por imprevisto' },
-  { icon: <Heart size={18}/>, text: 'Dicas para atender melhor na minha área' },
+  { icon: <Heart size={18}/>, text: 'Como posso aumentar o retorno das clientes da minha área?' },
   { icon: <CircleDollarSign size={18}/>, text: 'Como registro uma entrada no financeiro?' },
 ]
+
+function modelStatusText(status: AssistantStatus | null) {
+  if (!status) return 'Verificando a conversa livre'
+  if (status.aiAvailable) return 'Conversa livre disponível'
+  if (status.reason === 'model_missing') return 'Conversa livre ainda não ativada · consultas disponíveis'
+  if (status.reason === 'server_offline') return 'Conversa livre temporariamente indisponível'
+  if (status.reason === 'request_failed') return 'Conversa livre não respondeu · consultas disponíveis'
+  return 'Chat livre indisponível · consultas do app disponíveis'
+}
 
 function saoPauloDate() {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
@@ -61,14 +71,14 @@ export function AssistantPage() {
   const [draft, setDraft] = useState<ActionDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null)
+  const [modelStatus, setModelStatus] = useState<AssistantStatus | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let active = true
     void api.assistantStatus().then(status => {
-      if (active) setAiAvailable(status.aiAvailable)
+      if (active) setModelStatus(status)
     }).catch(() => {
-      if (active) setAiAvailable(false)
+      if (active) setModelStatus({ aiAvailable: false, provider: 'ollama', model: 'local' })
     })
     return () => { active = false }
   }, [])
@@ -106,10 +116,15 @@ export function AssistantPage() {
       } else {
         const history = messages.slice(-8).map(({ role, text: previous }) => ({ role, text: previous }))
         const response = await api.assistant(text, history)
-        setAiAvailable(response.mode === 'ai')
+        setModelStatus(current => ({
+          provider: 'ollama', model: current?.model || 'local',
+          aiAvailable: response.mode === 'ai',
+          ...(response.mode === 'local' ? { reason: current?.reason || 'request_failed' } : {}),
+        }))
         addAssistant(response.answer)
       }
     } catch (reason) {
+      setInput(text)
       setError(reason instanceof Error ? reason.message : 'Não consegui responder agora. Tente novamente.')
     } finally { setBusy(false) }
   }
@@ -137,7 +152,79 @@ export function AssistantPage() {
   }
 
   const submit = (event: FormEvent) => { event.preventDefault(); void send(input) }
-  return <div className="page assistant-page"><PageHeading eyebrow="SUA ASSISTENTE" title="Converse com a Nayla" description="Consulte sua agenda e peça remarcações ou cancelamentos com revisão antes de confirmar." /><Panel className="chat-panel"><div className="chat-top"><span className="chat-avatar"><Sparkles size={22}/></span><div><strong>Nayla</strong><small role="status"><span className="online-dot"/> {aiAvailable === null ? 'Verificando a IA conversacional' : aiAvailable ? 'IA conversacional configurada' : 'Consultas do app disponíveis · IA conversacional indisponível'}</small></div></div><div className="chat-messages">{messages.length === 0 ? <div className="chat-empty"><span className="chat-empty-icon"><Sparkles size={29}/></span><h2>Oi, {session?.user.name.split(' ')[0]}! Como posso ajudar?</h2><p>{aiAvailable === null ? 'Consulte seus dados ou escolha uma sugestão enquanto verifico a IA.' : aiAvailable ? 'Pergunte sobre seu negócio ou sua área de atuação.' : 'Consulte seus dados e saiba como usar o app. Para conversa aberta, a IA precisa ser ativada pela Nayla.'}</p><div className="prompt-grid">{prompts.map(prompt => <button key={prompt.text} onClick={() => void send(prompt.text)}>{prompt.icon}<span>{prompt.text}</span></button>)}</div></div> : <div className="message-stack">{messages.map(message => <div className={`chat-message ${message.role}`} key={message.id}>{message.role === 'assistant' ? <span className="message-avatar"><Sparkles size={16}/></span> : null}<div>{message.text}</div></div>)}{busy && !draft ? <div className="chat-message assistant"><span className="message-avatar"><Sparkles size={16}/></span><div className="typing"><i/><i/><i/></div></div> : null}</div>}{draft ? <ActionCard draft={draft} busy={busy} onChange={setDraft} onCancel={() => setDraft(null)} onConfirm={() => void confirmAction()} /> : null}<div ref={endRef}/></div><form className="chat-form" onSubmit={submit}><div className="chat-input-wrap"><input aria-label="Mensagem para Nayla" value={input} onChange={event => setInput(event.target.value)} placeholder="Pergunte sobre sua agenda ou peça uma remarcação..." maxLength={1000} /><button type="submit" disabled={!input.trim() || busy} aria-label="Enviar mensagem"><ArrowUp size={20}/></button></div>{error ? <p className="form-error" role="alert">{error}</p> : null}<small>A Nayla consulta apenas os dados do seu espaço. Alterações precisam da sua confirmação.</small></form></Panel></div>
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      void send(input)
+    }
+  }
+  const clearConversation = () => {
+    setMessages([])
+    setDraft(null)
+    setError('')
+    setInput('')
+  }
+
+  return <div className="page assistant-page">
+    <PageHeading eyebrow="SUA ASSISTENTE" title="Converse com a Nayla"
+      description="Pergunte sobre seu espaço, suas clientes, seus resultados e sua área de atuação." />
+    <Panel className="chat-panel">
+      <div className="chat-top">
+        <span className="chat-avatar"><Sparkles size={22}/></span>
+        <div className="chat-top-info">
+          <strong>Nayla</strong>
+          <small role="status" aria-live="polite">
+            <span className={`online-dot ${modelStatus?.aiAvailable ? '' : 'offline'}`}/>
+            {modelStatusText(modelStatus)}
+          </small>
+        </div>
+        {messages.length > 0 && <button type="button" className="chat-clear"
+          onClick={clearConversation} disabled={busy} title="Começar uma conversa nova">
+          <RotateCcw size={15}/> Nova conversa
+        </button>}
+      </div>
+      <div className="chat-messages">
+        {messages.length === 0
+          ? <div className="chat-empty">
+            <span className="chat-empty-icon"><Sparkles size={29}/></span>
+            <h2>Oi, {session?.user.name.split(' ')[0]}! Como posso ajudar?</h2>
+            <p>{modelStatus === null
+              ? 'Escolha uma sugestão enquanto verifico a IA local.'
+              : modelStatus.aiAvailable
+                ? 'Converse livremente sobre seu negócio, os dados do app e as áreas de beleza do seu cadastro.'
+                : 'Posso consultar os dados do app e explicar suas funções. A conversa livre está sendo preparada pela Nayla.'}</p>
+            <div className="prompt-grid">
+              {prompts.map(prompt => <button type="button" key={prompt.text} disabled={busy}
+                onClick={() => void send(prompt.text)}>{prompt.icon}<span>{prompt.text}</span></button>)}
+            </div>
+          </div>
+          : <div className="message-stack">
+            {messages.map(message => <div className={`chat-message ${message.role}`} key={message.id}>
+              {message.role === 'assistant' ? <span className="message-avatar"><Sparkles size={16}/></span> : null}
+              <div>{message.text}</div>
+            </div>)}
+            {busy && !draft ? <div className="chat-message assistant" role="status" aria-label="Nayla está preparando a resposta">
+              <span className="message-avatar"><Sparkles size={16}/></span>
+              <div className="typing"><i/><i/><i/></div>
+            </div> : null}
+          </div>}
+        {draft ? <ActionCard draft={draft} busy={busy} onChange={setDraft}
+          onCancel={() => setDraft(null)} onConfirm={() => void confirmAction()} /> : null}
+        <div ref={endRef}/>
+      </div>
+      <form className="chat-form" onSubmit={submit}>
+        <div className="chat-input-wrap">
+          <textarea aria-label="Mensagem para Nayla" value={input} rows={2}
+            onChange={event => setInput(event.target.value)} onKeyDown={handleComposerKeyDown}
+            placeholder="Pergunte sobre sua agenda, resultados ou serviços..."
+            maxLength={1000} />
+          <button type="submit" disabled={!input.trim() || busy} aria-label="Enviar mensagem"><ArrowUp size={20}/></button>
+        </div>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <small>Enter envia · Shift+Enter quebra linha. A Nayla consulta apenas os dados do seu espaço. Alterações precisam da sua confirmação.</small>
+      </form>
+    </Panel>
+  </div>
 }
 
 function ActionCard({ draft, busy, onChange, onCancel, onConfirm }: { draft: ActionDraft; busy: boolean; onChange: (value: ActionDraft) => void; onCancel: () => void; onConfirm: () => void }) {

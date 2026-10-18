@@ -1,0 +1,56 @@
+.assistant-page .chat-top-info { flex: 1; min-width: 0; }
+.assistant-page .chat-top-info small { line-height: 1.4; }
+.assistant-page .online-dot.offline { background: var(--muted); }
+.assistant-page .chat-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.assistant-page .chat-clear:hover { color: var(--ink); border-color: var(--pink); }
+.assistant-page .chat-clear:disabled { opacity: .5; cursor: wait; }
+.assistant-page .chat-clear:focus-visible,
+.assistant-page .prompt-grid button:focus-visible,
+.assistant-page .chat-input-wrap button:focus-visible,
+.assistant-page .chat-input-wrap:focus-within {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+.assistant-page .chat-input-wrap { align-items: flex-end; }
+.assistant-page .chat-input-wrap textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  max-height: 140px;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 10px 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.assistant-page .chat-input-wrap textarea::placeholder { color: var(--muted); }
+.assistant-page .chat-input-wrap button { flex: none; margin-bottom: 4px; }
+.assistant-page .chat-input-wrap button:disabled { opacity: .45; cursor: not-allowed; }
+.assistant-page .chat-form > small { line-height: 1.5; }
+.assistant-page .chat-message > div { overflow-wrap: anywhere; font-size: 13px; }
+.assistant-page .chat-message.assistant > div { color: var(--ink); }
+.assistant-page .prompt-grid button:disabled { opacity: .5; cursor: wait; }
+
+@media (max-width: 650px) {
+  .assistant-page .chat-clear { padding: 7px; font-size: 10px; }
+  .assistant-page .chat-top-info small { font-size: 10px; }
+  .assistant-page .chat-input-wrap textarea { font-size: 14px; }
+}

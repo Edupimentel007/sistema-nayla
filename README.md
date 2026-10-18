@@ -38,6 +38,7 @@ Links locais:
 | Login da empreendedora | `http://localhost:3001/entrar` |
 | Apresentação e planos | `http://localhost:3001/app/boas-vindas` |
 | Painel | `http://localhost:3001/app` |
+| Assistente Nayla | `http://localhost:3001/app/assistente` |
 | Análises | `http://localhost:3001/app/analises` |
 | Configurações e confirmações | `http://localhost:3001/app/configuracoes` |
 | Agendamento da cliente | `http://localhost:3001/agendar/SEU-LINK` |
@@ -66,13 +67,19 @@ O comando `mobile:ios` abre o projeto iOS em um Mac com Xcode. Para gerar um And
 
 Para regenerar os ícones do app a partir de `assets/brand/nayla-icon-source.png`, execute `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1 -Force` e depois `npm.cmd run mobile:sync`.
 
-**Publicação nas lojas:** crie contas de desenvolvedor, configure assinatura e dados da loja, publique a API, faça testes em dispositivos e envie os pacotes para análise. A [Google Play cobra US$ 25 uma vez](https://support.google.com/googleplay/android-developer/answer/6112435?hl=en); o [Apple Developer Program custa US$ 99 por ano](https://developer.apple.com/programs/whats-included/), ou valor local equivalente no cadastro. Contas pessoais novas no Google Play precisam de [teste fechado com pelo menos 12 pessoas durante 14 dias](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en-GB). A [Apple exige utilidade de app além de uma página empacotada](https://developer.apple.com/app-store/review/guidelines/#minimum-functionality); a aprovação depende da análise da loja. O projeto nativo ainda precisa ser compilado e testado nos SDKs oficiais antes de submissão. Hospedagem, domínio e uso opcional de IA podem gerar custos à parte.
+**Publicação nas lojas:** crie contas de desenvolvedor, configure assinatura e dados da loja, publique a API, faça testes em dispositivos e envie os pacotes para análise. A [Google Play cobra US$ 25 uma vez](https://support.google.com/googleplay/android-developer/answer/6112435?hl=en); o [Apple Developer Program custa US$ 99 por ano](https://developer.apple.com/programs/whats-included/), ou valor local equivalente no cadastro. Contas pessoais novas no Google Play precisam de [teste fechado com pelo menos 12 pessoas durante 14 dias](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en-GB). A [Apple exige utilidade de app além de uma página empacotada](https://developer.apple.com/app-store/review/guidelines/#minimum-functionality); a aprovação depende da análise da loja. O projeto nativo ainda precisa ser compilado e testado nos SDKs oficiais antes de submissão. Hospedagem, domínio e capacidade de processamento para a IA local podem gerar custos à parte.
 
 ## Configuração opcional
 
 ### Assistente com IA
 
-Defina `OPENAI_API_KEY` no `.env` do **servidor** e, se desejar, `OPENAI_MODEL` para ativar a conversa com modelo de IA. Reinicie a API depois de alterar o arquivo. Sem uma chave válida, a Nayla oferece consultas locais sobre agenda, financeiro, clientes e serviços, além de orientações básicas do app; a tela informa que a IA conversacional está indisponível. Uma chave vazia, inválida ou uma falha do provedor não produz respostas abertas equivalentes a um chat de IA. Nunca coloque a chave no frontend, app mobile ou repositório.
+A Nayla usa um **modelo aberto executado no servidor com Ollama**. Não há cobrança por chamada a uma API de IA. O modelo recebe, a cada pergunta, guias escritos para todas as áreas de beleza do catálogo e para as telas do app, além de ferramentas de consulta aos dados atuais da profissional. Isso contextualiza as respostas; **não é um ajuste dos pesos nem um treinamento novo do modelo**. Para ativar:
+
+1. [Instale o Ollama](https://docs.ollama.com/quickstart) no computador ou servidor que executa a API Nayla. No Windows, abra o instalador oficial e confirme que o Ollama está em execução. Em um Linux sem aplicativo gráfico, inicie o serviço conforme a documentação oficial.
+2. Nesse servidor, execute `ollama pull qwen3:8b`. O modelo ocupa cerca de **5,2 GB de download** e precisa de memória adicional para rodar. Para conferir: `ollama list` deve mostrar `qwen3:8b` e `http://127.0.0.1:11434/api/tags` deve responder no próprio servidor.
+3. Copie `.env.example` para `.env` e mantenha `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1` e `OLLAMA_MODEL=qwen3:8b`. Reinicie a API Nayla. No Windows, pode testar a resposta do servidor com `Invoke-RestMethod http://127.0.0.1:11434/api/tags` no PowerShell.
+
+O modelo e a API Nayla precisam estar **no mesmo servidor**; o app web ou mobile acessa a API autenticada e não precisa instalar o modelo no celular. A Nayla aceita somente uma conexão Ollama em `localhost` ou `127.0.0.1`; não exponha a porta 11434 à internet. A API verifica se o serviço está acessível e se o modelo foi baixado antes de anunciar a IA como disponível. Sem Ollama ativo, consultas básicas locais continuam funcionando, mas respostas abertas de IA ficam indisponíveis. A hospedagem do servidor e sua capacidade de memória/processamento ainda podem ter custo; não há garantia de custo zero de infraestrutura nem de qualidade idêntica a serviços de IA maiores. [API local e compatibilidade](https://docs.ollama.com/api/openai-compatibility), [modelo Qwen3 8B](https://ollama.com/library/qwen3:8b).
 
 As perguntas são respondidas com o contexto atualizado do negócio autenticado. A API limita o histórico enviado pelo chat a oito mensagens, sem guardar essa conversa no banco. Dados de outra profissional não entram no contexto. Fatos sobre faturamento, clientes e agenda vêm apenas do banco; conselhos gerais da área de atuação são separados desses fatos. Alterações de agendamento continuam exigindo revisão e confirmação pela profissional.
 

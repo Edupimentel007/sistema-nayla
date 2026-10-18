@@ -28,6 +28,7 @@ export type User = { id: string; name: string; email: string; role: 'owner' }
 export type Session = { user: User; business: Business }
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; text: string }
 export type AssistantReply = { answer: string; mode: 'ai' | 'local' }
+export type AssistantStatus = { aiAvailable: boolean; provider: 'ollama'; model: string; reason?: string }
 
 export type BillingPlan = 'monthly' | 'annual'
 export type BillingMethod = 'card' | 'pix'
@@ -276,7 +277,7 @@ export const api = {
     request<Service>(`/api/services/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(data) }),
   deleteService: (id: string) => request<void>(`/api/services/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   updateBusiness: (data: Partial<Business>) => request<Business>('/api/business', { method: 'PATCH', body: json(data) }),
-  assistantStatus: () => request<{ aiAvailable: boolean }>('/api/assistant/status'),
+  assistantStatus: () => request<AssistantStatus>('/api/assistant/status'),
   assistant: (message: string, history: AssistantHistoryItem[] = []) =>
     request<AssistantReply>('/api/assistant', { method: 'POST', body: json({ message, history }) }),
   whatsappConfig: () => request<WhatsAppConfig>('/api/notifications/config'),
