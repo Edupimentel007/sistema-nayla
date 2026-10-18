@@ -12,7 +12,7 @@ Aplicativo de agenda, CRM e financeiro para profissionais de beleza e estética 
 - Visão geral com Hoje como período inicial e filtros de 7, 30, 60 e 90 dias, faturamento, ticket médio, agendamentos e clientes recorrentes.
 - Análises com gráficos de agenda, receita, clientes e ticket médio, explicações e dicas práticas para melhorar os resultados; a assistente Nayla também responde sobre esses indicadores.
 - Logo opcional no cadastro, editável nas Configurações, exibida no perfil, painel e página de agendamento.
-- Financeiro com entradas automáticas dos atendimentos concluídos e lançamentos manuais de receitas e despesas.
+- Financeiro com entradas automáticas dos atendimentos concluídos e lançamentos manuais de receitas e despesas. Oferece filtro Hoje, últimos 7, 30, 60 e 90 dias e próximos 30 dias. Lançamentos futuros aparecem no dia informado, enquanto um pagamento recebido hoje por um atendimento futuro deve usar a data de hoje.
 - Assistente Nayla para consultas aos dados da própria empreendedora e pedidos guiados de remarcação ou cancelamento, com revisão e confirmação pela profissional antes da alteração.
 - Confirmações de agendamento com prévia local, histórico de status e integração opcional à WhatsApp Cloud API da Meta.
 - Interface em português, responsiva, com temas claro e escuro.
@@ -38,6 +38,7 @@ Links locais:
 | Login da empreendedora | `http://localhost:3001/entrar` |
 | Apresentação e planos | `http://localhost:3001/app/boas-vindas` |
 | Painel | `http://localhost:3001/app` |
+| Financeiro | `http://localhost:3001/app/financeiro` |
 | Assistente Nayla | `http://localhost:3001/app/assistente` |
 | Análises | `http://localhost:3001/app/analises` |
 | Configurações e confirmações | `http://localhost:3001/app/configuracoes` |

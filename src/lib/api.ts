@@ -268,6 +268,7 @@ export const api = {
   updateClient: (id: string, data: { name?: string; phone?: string; email?: string; notes?: string; tags?: string[] }) =>
     request<Client>(`/api/clients/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(data) }),
   finance: (period: number) => request<Finance>(`/api/finance?period=${period}`),
+  financeRange: (from: string, to: string) => request<Finance>(`/api/finance?${query({ from, to })}`),
   createFinancialEntry: (data: { type: 'income' | 'expense'; description: string; amount: number; date: string }) =>
     request<FinancialEntry>('/api/finance', { method: 'POST', body: json(data) }),
   deleteFinancialEntry: (id: string) => request<void>(`/api/finance/${encodeURIComponent(id)}`, { method: 'DELETE' }),

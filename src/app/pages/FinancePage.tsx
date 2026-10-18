@@ -3,6 +3,9 @@ import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Plus, Trash2, Wallet, X 
 import { api, type Finance, type FinancialEntry } from '../../lib/api'
 import { EmptyState, ErrorState, Loading, money, PageHeading, Panel, PeriodPicker, shortDate } from '../shared'
 import './admin-motion.css'
+import './finance.css'
+
+type FinanceFilter = { kind: 'past'; days: number } | { kind: 'upcoming' } | { kind: 'date'; value: string }
 
 function todayInSaoPaulo() {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -14,9 +17,20 @@ function todayInSaoPaulo() {
 
 function isInPeriod(date: string, period: number) {
   const today = todayInSaoPaulo()
-  const start = new Date(`${today}T12:00:00Z`)
-  start.setUTCDate(start.getUTCDate() - period + 1)
-  return date >= start.toISOString().slice(0, 10) && date <= today
+  return date >= shiftDate(today, -period + 1) && date <= today
+}
+
+function shiftDate(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function isInFilter(date: string, filter: FinanceFilter) {
+  if (filter.kind === 'past') return isInPeriod(date, filter.days)
+  if (filter.kind === 'date') return date === filter.value
+  const today = todayInSaoPaulo()
+  return date > today && date <= shiftDate(today, 30)
 }
 
 function parseAmount(text: string) {
@@ -40,9 +54,9 @@ function withEntry(finance: Finance, entry: FinancialEntry, direction: 1 | -1): 
 }
 
 export function FinancePage() {
-  const [period, setPeriod] = useState(30)
+  const [filter, setFilter] = useState<FinanceFilter>({ kind: 'past', days: 30 })
   const [data, setData] = useState<Finance | null>(null)
-  const [dataPeriod, setDataPeriod] = useState<number | null>(null)
+  const [dataFilterKey, setDataFilterKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -56,19 +70,27 @@ export function FinancePage() {
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const requestVersion = useRef(0)
-  const visibleData = dataPeriod === period ? data : null
+  const filterKey = filter.kind === 'past' ? `past:${filter.days}` :
+    filter.kind === 'date' ? `date:${filter.value}` : `upcoming:${todayInSaoPaulo()}`
+  const visibleData = dataFilterKey === filterKey ? data : null
+  const filterLabel = filter.kind === 'past' ? filter.days === 1 ? 'Hoje' : `Últimos ${filter.days} dias` :
+    filter.kind === 'upcoming' ? 'Próximos 30 dias' : `Dia ${shortDate(filter.value)}`
+  const futureDate = date > todayInSaoPaulo()
 
   useEffect(() => {
     let live = true
     const version = ++requestVersion.current
     setLoading(true)
     setError('')
-    api.finance(period)
-      .then(value => { if (live && requestVersion.current === version) { setData(value); setDataPeriod(period) } })
+    const request = filter.kind === 'past' ? api.finance(filter.days) :
+      filter.kind === 'date' ? api.financeRange(filter.value, filter.value) :
+        api.financeRange(shiftDate(todayInSaoPaulo(), 1), shiftDate(todayInSaoPaulo(), 30))
+    request
+      .then(value => { if (live && requestVersion.current === version) { setData(value); setDataFilterKey(filterKey) } })
       .catch(reason => { if (live && requestVersion.current === version) setError(reason instanceof Error ? reason.message : 'Erro ao carregar financeiro.') })
       .finally(() => { if (live && requestVersion.current === version) setLoading(false) })
     return () => { live = false }
-  }, [period, retry])
+  }, [filterKey, retry])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -82,12 +104,13 @@ export function FinancePage() {
     setActionError('')
     try {
       const entry = await api.createFinancialEntry({ type, description: description.trim(), amount: value, date })
-      const inPeriod = isInPeriod(entry.date, period)
+      const inPeriod = isInFilter(entry.date, filter)
       requestVersion.current += 1
       if (inPeriod && visibleData) setData(current => current ? withEntry(current, entry, 1) : current)
       setNotice(inPeriod
         ? `${entry.type === 'income' ? 'Entrada' : 'Despesa'} de ${money(entry.amount)} registrada. Os totais foram atualizados.`
-        : `Lançamento salvo em ${shortDate(entry.date)}. Esta data está fora do período selecionado.`)
+        : `Lançamento salvo. Exibindo os totais e movimentações de ${shortDate(entry.date)}.`)
+      if (!inPeriod) setFilter({ kind: 'date', value: entry.date })
       setModalOpen(false)
       setDescription('')
       setAmount('')
@@ -120,10 +143,16 @@ export function FinancePage() {
 
   return <div className="page">
     <PageHeading eyebrow="CONTROLE FINANCEIRO" title="Seu financeiro"
-      description="Entradas manuais e atendimentos concluídos entram no faturamento. Agendamentos futuros ainda não são receita."
-      action={<PeriodPicker value={period} onChange={value => { setPeriod(value); setNotice('') }} />} />
+      description="Entradas manuais entram na data do recebimento. Atendimentos concluídos entram no faturamento; agendamentos futuros ainda não são receita."
+      action={<div className="finance-period-actions">
+        <PeriodPicker value={filter.kind === 'past' ? filter.days : 0} showToday
+          onChange={days => { setFilter({ kind: 'past', days }); setNotice('') }} />
+        <button type="button" className={`finance-filter-button ${filter.kind === 'upcoming' ? 'selected' : ''}`}
+          aria-pressed={filter.kind === 'upcoming'} onClick={() => { setFilter({ kind: 'upcoming' }); setNotice('') }}>Próximos 30 dias</button>
+        {filter.kind === 'date' ? <span className="finance-filter-date">Dia {shortDate(filter.value)}</span> : null}
+      </div>} />
     <div className="finance-toolbar">
-      <span>Visão dos últimos {period} dias{loading && visibleData ? ' · Atualizando...' : ''}</span>
+      <span>Visão: {filterLabel}{loading && visibleData ? ' · Atualizando...' : ''}</span>
       <button className="btn btn-primary" onClick={() => { setActionError(''); setNotice(''); setDate(todayInSaoPaulo()); setModalOpen(true) }}>
         <Plus size={18}/> Novo lançamento
       </button>
@@ -171,8 +200,14 @@ export function FinancePage() {
           <div className="form-row">
             <label>Valor (R$)<input type="text" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="0,00" required /></label>
-            <label>Data<input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
+            <label>{type === 'income' ? 'Data do recebimento' : 'Data do pagamento'}
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
           </div>
+          <p className="finance-date-help">Se a cliente pagou hoje por um atendimento futuro, mantenha a data de hoje. O atendimento pode ser mencionado na descrição.</p>
+          {futureDate ? <p className="finance-future-help" role="status">
+            Esta data é futura. O valor ficará nos totais dessa data, não nos totais de hoje.
+            <button type="button" onClick={() => setDate(todayInSaoPaulo())}>Recebi hoje</button>
+          </p> : null}
           {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
           <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setModalOpen(false)}>Cancelar</button>
             <button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar lançamento'}</button></div>

@@ -883,6 +883,15 @@ function periodDates(query: Request['query']) {
   const to = localNow().date;
   return { from: period === 1 ? to : dateAgo(period), to, period };
 }
+function financeDates(query: Request['query']) {
+  if (query.from === undefined && query.to === undefined) return periodDates(query);
+  if (query.from === undefined || query.to === undefined || query.period !== undefined)
+    throw new ApiError(400, 'Informe data inicial e final sem combinar com outro filtro.');
+  const from = date.parse(query.from);
+  const to = date.parse(query.to);
+  if (from > to) throw new ApiError(400, 'Período inválido.');
+  return { from, to };
+}
 function entryDto(row: Row) {
   return { id: row.id, type: row.type, description: row.description,
     category: row.category || '', amount: fromCents(row.amount_cents), date: row.date,
@@ -894,7 +903,7 @@ function listFinance(businessId: string, from: string, to: string) {
   return rows.map(entryDto);
 }
 app.get('/api/finance', owner, (req, res) => {
-  const { from, to } = periodDates(req.query);
+  const { from, to } = financeDates(req.query);
   const businessId = currentUser(res).business_id;
   const entries = listFinance(businessId, from, to);
   const totals = db.prepare(`SELECT

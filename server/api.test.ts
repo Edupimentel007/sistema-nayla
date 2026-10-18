@@ -109,6 +109,34 @@ describe('Nayla API', () => {
     assert.equal(serverOutput.includes(secret), false);
   });
 
+  it('shows future-dated entries in an explicit interval without counting them in current cash', { timeout: 30_000 }, async () => {
+    const registration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Clara Lima', businessName: 'Studio Clara', slug: 'studio-clara-future-test',
+      email: 'clara-future@example.test', password: 'SenhaMuitoForte3', specialties: ['unhas'],
+      selectedServices: selectedServices('unhas'),
+    }) });
+    expect(registration.status).toBe(201);
+    const ownerCookie = registration.cookie!;
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const futureDate = new Date(`${today}T12:00:00Z`);
+    futureDate.setUTCDate(futureDate.getUTCDate() + 10);
+    const futureDay = futureDate.toISOString().slice(0, 10);
+    const futureIncome = await request('/api/finance', { method: 'POST', body: JSON.stringify({
+      type: 'income', description: 'Recebimento com data futura', amount: 75, date: futureDay,
+    }) }, ownerCookie);
+    expect(futureIncome.status).toBe(201);
+    const futureFinance = await request(`/api/finance?from=${futureDay}&to=${futureDay}`, {}, ownerCookie);
+    expect(futureFinance.status).toBe(200);
+    expect(futureFinance.body.income).toBe(75);
+    expect(futureFinance.body.entries.map((entry: any) => entry.id)).toContain(futureIncome.body.id);
+    expect((await request('/api/finance?period=1', {}, ownerCookie)).body.income).toBe(0);
+    expect((await request('/api/dashboard?period=1', {}, ownerCookie)).body.revenue).toBe(0);
+    expect((await request(`/api/finance?from=${futureDay}`, {}, ownerCookie)).status).toBe(400);
+    expect((await request(`/api/finance?from=${futureDay}&to=${today}`, {}, ownerCookie)).status).toBe(400);
+    expect((await request(`/api/finance?from=${futureDay}&to=${futureDay}&period=7`, {}, ownerCookie)).status).toBe(400);
+  });
+
   it('isolates tenants and prevents booking conflicts while keeping CRM, finance and client portal connected', { timeout: 30_000 }, async () => {
     const first = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Ana Silva', businessName: 'Ateliê Ana', slug: 'atelie-ana-test',
@@ -309,6 +337,23 @@ describe('Nayla API', () => {
     expect(financeNow.body.balance).toBe(111.11);
     expect(financeNow.body.entries.map((entry: any) => entry.id)).toContain(income.body.id);
     expect(financeNow.body.entries.map((entry: any) => entry.id)).toContain(expense.body.id);
+    const futureDate = new Date(`${today}T12:00:00Z`);
+    futureDate.setUTCDate(futureDate.getUTCDate() + 10);
+    const futureDay = futureDate.toISOString().slice(0, 10);
+    const futureIncome = await request('/api/finance', { method: 'POST', body: JSON.stringify({
+      type: 'income', description: 'Recebimento com data futura', amount: 75, date: futureDay,
+    }) }, ownerCookie);
+    expect(futureIncome.status).toBe(201);
+    const futureFinance = await request(`/api/finance?from=${futureDay}&to=${futureDay}`, {}, ownerCookie);
+    expect(futureFinance.status).toBe(200);
+    expect(futureFinance.body.income).toBe(75);
+    expect(futureFinance.body.entries.map((entry: any) => entry.id)).toContain(futureIncome.body.id);
+    expect((await request(`/api/finance?from=${futureDay}&to=${futureDay}`, {}, otherCookie)).body.income).toBe(0);
+    expect((await request('/api/finance?period=1', {}, ownerCookie)).body.income).toBe(123.45);
+    expect((await request(`/api/finance?from=${futureDay}`, {}, ownerCookie)).status).toBe(400);
+    expect((await request(`/api/finance?from=${futureDay}&to=${today}`, {}, ownerCookie)).status).toBe(400);
+    expect((await request(`/api/finance?from=${futureDay}&to=${futureDay}&period=7`, {}, ownerCookie)).status).toBe(400);
+    expect((await request(`/api/finance/${futureIncome.body.id}`, { method: 'DELETE' }, ownerCookie)).status).toBe(204);
     const analysisNow = await request('/api/analytics?period=7', {}, ownerCookie);
     expect(analysisNow.body.overview.income.current).toBe(123.45);
     expect(analysisNow.body.overview.expenses.current).toBe(12.34);

@@ -1,0 +1,80 @@
+.finance-period-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.finance-period-actions .period-picker {
+  flex-wrap: wrap;
+}
+
+.finance-filter-button,
+.finance-filter-date {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.finance-filter-button {
+  cursor: pointer;
+}
+
+.finance-filter-button.selected,
+.finance-filter-date {
+  border-color: var(--pink-soft);
+  background: var(--pink-soft);
+  color: var(--pink-dark);
+}
+
+.finance-filter-button:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+
+.finance-date-help,
+.finance-future-help {
+  margin: -5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.finance-date-help {
+  color: var(--muted);
+}
+
+.finance-future-help {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.finance-future-help button {
+  margin-left: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pink-dark);
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (max-width: 650px) {
+  .finance-period-actions {
+    justify-content: flex-start;
+  }
+}
