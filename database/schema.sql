@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   appointment_id TEXT UNIQUE REFERENCES appointments(id),
+    prepaid_appointment_id TEXT REFERENCES appointments(id) ON DELETE SET NULL,
   type TEXT NOT NULL CHECK (type IN ('income','expense')),
   description TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT '',

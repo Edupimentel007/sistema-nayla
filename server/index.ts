@@ -476,11 +476,15 @@ app.patch('/api/appointments/:id', owner, async (req, res) => {
     db.prepare('UPDATE appointments SET status=?,completed_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND business_id=?')
       .run(status, status === 'completed' ? new Date().toISOString() : null, existing.id, user.business_id);
     if (status === 'completed') {
-      db.prepare(`INSERT OR IGNORE INTO financial_entries
+      const prepaidCents = (db.prepare(`SELECT COALESCE(SUM(amount_cents),0) AS total
+        FROM financial_entries WHERE business_id=? AND prepaid_appointment_id=? AND type='income'`)
+        .get(user.business_id, existing.id) as { total: number }).total;
+      const remainingCents = Math.max(0, existing.price_cents - prepaidCents);
+      if (remainingCents) db.prepare(`INSERT OR IGNORE INTO financial_entries
         (id,business_id,appointment_id,type,description,category,amount_cents,date)
         VALUES(?,?,?,'income',?,'Atendimento',?,?)`)
         .run(id(), user.business_id, existing.id, `${existing.service_name} — ${existing.client_name}`,
-          existing.price_cents, existing.date);
+          remainingCents, existing.date);
     }
   }).immediate();
   res.json(appointmentDto(getAppointment(user.business_id, existing.id)!));
@@ -895,11 +899,15 @@ function financeDates(query: Request['query']) {
 function entryDto(row: Row) {
   return { id: row.id, type: row.type, description: row.description,
     category: row.category || '', amount: fromCents(row.amount_cents), date: row.date,
-    appointmentId: row.appointment_id, createdAt: row.created_at };
+    appointmentId: row.appointment_id, prepaidAppointmentId: row.prepaid_appointment_id,
+    prepaidAppointmentStatus: row.prepaid_appointment_status ?? null,
+    createdAt: row.created_at };
 }
 function listFinance(businessId: string, from: string, to: string) {
-  const rows = db.prepare(`SELECT * FROM financial_entries WHERE business_id=? AND date BETWEEN ? AND ?
-    ORDER BY date DESC,created_at DESC LIMIT 1000`).all(businessId, from, to) as Row[];
+  const rows = db.prepare(`SELECT f.*,a.status AS prepaid_appointment_status FROM financial_entries f
+    LEFT JOIN appointments a ON a.id=f.prepaid_appointment_id
+    WHERE f.business_id=? AND f.date BETWEEN ? AND ?
+    ORDER BY f.date DESC,f.created_at DESC LIMIT 1000`).all(businessId, from, to) as Row[];
   return rows.map(entryDto);
 }
 app.get('/api/finance', owner, (req, res) => {
@@ -926,15 +934,46 @@ const financeInput = z.object({
   amount: money.refine(value => value > 0), date,
   category: z.string().trim().max(50).optional(),
 });
+const financeCreateInput = financeInput.extend({ appointmentId: z.string().uuid().optional() });
+function prepaidTotalCents(businessId: string, appointmentId: string, excludeId = '') {
+  return (db.prepare(`SELECT COALESCE(SUM(amount_cents),0) AS total FROM financial_entries
+    WHERE business_id=? AND prepaid_appointment_id=? AND type='income' AND id<>?`)
+    .get(businessId, appointmentId, excludeId) as { total: number }).total;
+}
+function validatePrepayment(businessId: string, appointmentId: string, amountCents: number,
+  receivedDate: string, excludeId = '') {
+  const appointment = db.prepare(`SELECT status,price_cents FROM appointments WHERE id=? AND business_id=?`)
+    .get(appointmentId, businessId) as { status: string; price_cents: number } | undefined;
+  if (!appointment) throw new ApiError(404, 'Agendamento não encontrado.');
+  if (!['pending', 'confirmed'].includes(appointment.status))
+    throw new ApiError(409, 'Vincule pagamentos somente a agendamentos pendentes ou confirmados.');
+  if (receivedDate > localNow().date)
+    throw new ApiError(400, 'Para vincular ao agendamento, informe a data em que o pagamento já foi recebido.');
+  if (amountCents > appointment.price_cents - prepaidTotalCents(businessId, appointmentId, excludeId))
+    throw new ApiError(409, 'O pagamento excede o valor restante do agendamento.');
+}
 function createFinanceEntry(req: Request, res: Response) {
-  const input = financeInput.parse(req.body);
+  const input = financeCreateInput.parse(req.body);
   const entryId = id();
-  db.prepare(`INSERT INTO financial_entries(id,business_id,type,description,category,amount_cents,date)
-    VALUES(?,?,?,?,?,?,?)`).run(entryId, currentUser(res).business_id, input.type,
-      input.description, input.category || '', toCents(input.amount), input.date);
+  const businessId = currentUser(res).business_id;
+  db.transaction(() => {
+    if (input.appointmentId) {
+      if (input.type !== 'income') throw new ApiError(400, 'Somente entradas podem ser vinculadas a agendamentos.');
+      validatePrepayment(businessId, input.appointmentId, toCents(input.amount), input.date);
+    }
+    db.prepare(`INSERT INTO financial_entries
+      (id,business_id,prepaid_appointment_id,type,description,category,amount_cents,date)
+      VALUES(?,?,?,?,?,?,?,?)`).run(entryId, businessId, input.appointmentId ?? null,
+        input.type, input.description, input.category || '', toCents(input.amount), input.date);
+  }).immediate();
   res.status(201).json(entryDto(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(entryId) as Row));
 }
 function deleteFinanceEntry(req: Request, res: Response) {
+  const linked = db.prepare(`SELECT a.status FROM financial_entries f JOIN appointments a
+    ON a.id=f.prepaid_appointment_id WHERE f.id=? AND f.business_id=?`)
+    .get(req.params.id, currentUser(res).business_id) as { status: string } | undefined;
+  if (linked?.status === 'completed')
+    throw new ApiError(409, 'Este pagamento integra um atendimento concluído e não pode ser excluído.');
   const result = db.prepare(`DELETE FROM financial_entries WHERE id=? AND business_id=? AND appointment_id IS NULL`)
     .run(req.params.id, currentUser(res).business_id);
   if (!result.changes) throw new ApiError(404, 'Lançamento manual não encontrado.');
@@ -946,11 +985,20 @@ function updateFinanceEntry(req: Request, res: Response) {
     .get(req.params.id, businessId) as Row | undefined;
   if (!previous) throw new ApiError(404, 'Lançamento manual não encontrado.');
   const input = financeInput.partial().parse(req.body);
-  db.prepare(`UPDATE financial_entries SET type=?,description=?,category=?,amount_cents=?,date=?
-    WHERE id=? AND business_id=? AND appointment_id IS NULL`).run(input.type ?? previous.type,
-      input.description ?? previous.description, input.category ?? previous.category,
-      input.amount === undefined ? previous.amount_cents : toCents(input.amount),
-      input.date ?? previous.date, previous.id, businessId);
+  db.transaction(() => {
+    if (previous.prepaid_appointment_id) {
+      if (input.type && input.type !== 'income')
+        throw new ApiError(400, 'Um pagamento vinculado deve continuar como entrada.');
+      validatePrepayment(businessId, previous.prepaid_appointment_id,
+        input.amount === undefined ? previous.amount_cents : toCents(input.amount),
+        input.date ?? previous.date, previous.id);
+    }
+    db.prepare(`UPDATE financial_entries SET type=?,description=?,category=?,amount_cents=?,date=?
+      WHERE id=? AND business_id=? AND appointment_id IS NULL`).run(input.type ?? previous.type,
+        input.description ?? previous.description, input.category ?? previous.category,
+        input.amount === undefined ? previous.amount_cents : toCents(input.amount),
+        input.date ?? previous.date, previous.id, businessId);
+  }).immediate();
   res.json(entryDto(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(previous.id) as Row));
 }
 app.post('/api/finance', owner, createFinanceEntry);

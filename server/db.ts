@@ -58,6 +58,7 @@ for (const [table, column, definition] of [
   ['appointments', 'updated_at', 'TEXT'],
   ['appointments', 'notes', "TEXT NOT NULL DEFAULT ''"],
   ['appointments', 'whatsapp_opt_in', 'INTEGER NOT NULL DEFAULT 0'],
+  ['financial_entries', 'prepaid_appointment_id', 'TEXT REFERENCES appointments(id) ON DELETE SET NULL'],
   ['notification_outbox', 'phone_number_id', 'TEXT'],
   ['notification_outbox', 'kind', "TEXT NOT NULL DEFAULT 'booking_confirmation'"],
   ['business_whatsapp_settings', 'app_secret_encrypted', 'TEXT'],
@@ -70,7 +71,8 @@ for (const [table, column, definition] of [
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS owner_google_subject ON users(google_subject) WHERE role='owner' AND google_subject IS NOT NULL;
-  CREATE UNIQUE INDEX IF NOT EXISTS client_google_subject_per_business ON users(business_id,google_subject) WHERE role='client' AND google_subject IS NOT NULL;`);
+  CREATE UNIQUE INDEX IF NOT EXISTS client_google_subject_per_business ON users(business_id,google_subject) WHERE role='client' AND google_subject IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS financial_entries_prepaid_appointment ON financial_entries(business_id,prepaid_appointment_id);`);
 db.prepare('DELETE FROM google_oauth_flows WHERE expires_at < ?').run(Date.now());
 db.prepare('DELETE FROM google_oauth_tickets WHERE expires_at < ?').run(Date.now());
 const webhookRows = db.prepare(`SELECT business_id FROM business_whatsapp_settings

@@ -105,7 +105,7 @@ export type Dashboard = {
   revenueByDay?: Array<{ date: string; amount: number }>
 }
 
-export type FinancialEntry = { id: string; type: 'income' | 'expense'; description: string; amount: number; date: string; appointmentId?: string | null; createdAt?: string }
+export type FinancialEntry = { id: string; type: 'income' | 'expense'; description: string; amount: number; date: string; appointmentId?: string | null; prepaidAppointmentId?: string | null; prepaidAppointmentStatus?: AppointmentStatus | null; createdAt?: string }
 export type Finance = { entries: FinancialEntry[]; income: number; expenses: number; balance: number }
 
 export type PublicBusiness = { business: Business; services: Service[] }
@@ -269,7 +269,7 @@ export const api = {
     request<Client>(`/api/clients/${encodeURIComponent(id)}`, { method: 'PATCH', body: json(data) }),
   finance: (period: number) => request<Finance>(`/api/finance?period=${period}`),
   financeRange: (from: string, to: string) => request<Finance>(`/api/finance?${query({ from, to })}`),
-  createFinancialEntry: (data: { type: 'income' | 'expense'; description: string; amount: number; date: string }) =>
+  createFinancialEntry: (data: { type: 'income' | 'expense'; description: string; amount: number; date: string; appointmentId?: string }) =>
     request<FinancialEntry>('/api/finance', { method: 'POST', body: json(data) }),
   deleteFinancialEntry: (id: string) => request<void>(`/api/finance/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   services: () => request<Service[]>('/api/services'),

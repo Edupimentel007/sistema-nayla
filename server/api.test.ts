@@ -137,6 +137,59 @@ describe('Nayla API', () => {
     expect((await request(`/api/finance?from=${futureDay}&to=${futureDay}&period=7`, {}, ownerCookie)).status).toBe(400);
   });
 
+  it('counts an advance on receipt and only the unpaid balance when the appointment is completed', { timeout: 30_000 }, async () => {
+    const registration = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Luiza Ramos', businessName: 'Studio Luiza', slug: 'studio-luiza-advance-test',
+      email: 'luiza-advance@example.test', password: 'SenhaMuitoForte4', specialties: ['unhas'],
+      selectedServices: selectedServices('unhas'),
+    }) });
+    expect(registration.status).toBe(201);
+    const ownerCookie = registration.cookie!;
+    const catalog = await request('/api/public/studio-luiza-advance-test');
+    const serviceId = catalog.body.services.find((service: any) => service.price > 0).id as string;
+    const bookingDate = bookingDay();
+    const slots = await request(`/api/public/studio-luiza-advance-test/availability?serviceId=${serviceId}&date=${bookingDate}`);
+    const booked = await request('/api/public/studio-luiza-advance-test/bookings', { method: 'POST',
+      body: JSON.stringify({ serviceId, date: bookingDate, time: slots.body.slots[0], client: {
+        name: 'Cliente Adiantamento', cpf: '529.982.247-25', phone: '(11) 99999-8888',
+        password: 'SenhaCliente123',
+      } }),
+    });
+    expect(booked.status).toBe(201);
+    const appointmentId = booked.body.appointment.id as string;
+    const price = booked.body.appointment.price as number;
+    const advance = Math.floor(price * 50) / 100;
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const payment = { type: 'income', description: 'Sinal recebido', amount: advance, date: today, appointmentId };
+    const otherBusiness = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
+      ownerName: 'Rita Melo', businessName: 'Studio Rita', slug: 'studio-rita-advance-test',
+      email: 'rita-advance@example.test', password: 'SenhaMuitoForte5', specialties: ['unhas'],
+      selectedServices: selectedServices('unhas'),
+    }) });
+    expect(otherBusiness.status).toBe(201);
+    expect((await request('/api/finance', { method: 'POST', body: JSON.stringify(payment) },
+      otherBusiness.cookie)).status).toBe(404);
+    const saved = await request('/api/finance', { method: 'POST', body: JSON.stringify(payment) }, ownerCookie);
+    expect(saved.status).toBe(201);
+    expect(saved.body.prepaidAppointmentId).toBe(appointmentId);
+    expect((await request('/api/finance?period=1', {}, ownerCookie)).body.income).toBe(advance);
+    expect((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+      ...payment, amount: price,
+    }) }, ownerCookie)).status).toBe(409);
+    expect((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+      ...payment, date: bookingDate,
+    }) }, ownerCookie)).status).toBe(400);
+    const completed = await request(`/api/appointments/${appointmentId}`, { method: 'PATCH',
+      body: JSON.stringify({ status: 'completed' }),
+    }, ownerCookie);
+    expect(completed.status).toBe(200);
+    const onBookingDay = await request(`/api/finance?from=${bookingDate}&to=${bookingDate}`, {}, ownerCookie);
+    expect(onBookingDay.body.income).toBe(Number((price - advance).toFixed(2)));
+    expect((await request(`/api/finance?from=${today}&to=${bookingDate}`, {}, ownerCookie)).body.income).toBe(price);
+    expect((await request(`/api/finance/${saved.body.id}`, { method: 'DELETE' }, ownerCookie)).status).toBe(409);
+  });
+
   it('isolates tenants and prevents booking conflicts while keeping CRM, finance and client portal connected', { timeout: 30_000 }, async () => {
     const first = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
       ownerName: 'Ana Silva', businessName: 'Ateliê Ana', slug: 'atelie-ana-test',

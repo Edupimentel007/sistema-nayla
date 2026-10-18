@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, Plus, Trash2, Wallet, X } from 'lucide-react'
-import { api, type Finance, type FinancialEntry } from '../../lib/api'
+import { api, type Appointment, type Finance, type FinancialEntry } from '../../lib/api'
 import { EmptyState, ErrorState, Loading, money, PageHeading, Panel, PeriodPicker, shortDate } from '../shared'
 import './admin-motion.css'
 import './finance.css'
@@ -67,6 +67,11 @@ export function FinancePage() {
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(todayInSaoPaulo)
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false)
+  const [appointmentsError, setAppointmentsError] = useState('')
+  const [appointmentsRetry, setAppointmentsRetry] = useState(0)
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState('')
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const requestVersion = useRef(0)
@@ -76,6 +81,18 @@ export function FinancePage() {
   const filterLabel = filter.kind === 'past' ? filter.days === 1 ? 'Hoje' : `Últimos ${filter.days} dias` :
     filter.kind === 'upcoming' ? 'Próximos 30 dias' : `Dia ${shortDate(filter.value)}`
   const futureDate = date > todayInSaoPaulo()
+  const canLinkPayment = type === 'income' && !futureDate
+
+  const openNewEntry = () => {
+    setActionError('')
+    setNotice('')
+    setDate(todayInSaoPaulo())
+    setSelectedAppointmentId('')
+    setAppointments([])
+    setAppointmentsError('')
+    setAppointmentsLoading(true)
+    setModalOpen(true)
+  }
 
   useEffect(() => {
     let live = true
@@ -92,6 +109,29 @@ export function FinancePage() {
     return () => { live = false }
   }, [filterKey, retry])
 
+  useEffect(() => {
+    if (!modalOpen) return
+    let live = true
+    const today = todayInSaoPaulo()
+    setAppointmentsLoading(true)
+    setAppointmentsError('')
+    api.appointments(today, shiftDate(today, 90))
+      .then(items => {
+        if (live) {
+          const eligible = items
+            .filter(item => (item.status === 'pending' || item.status === 'confirmed') && item.price > 0)
+            .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+          setAppointments(eligible)
+          setSelectedAppointmentId(current => eligible.some(item => item.id === current) ? current : '')
+        }
+      })
+      .catch(reason => {
+        if (live) setAppointmentsError(reason instanceof Error ? reason.message : 'Não foi possível carregar os agendamentos.')
+      })
+      .finally(() => { if (live) setAppointmentsLoading(false) })
+    return () => { live = false }
+  }, [modalOpen, appointmentsRetry])
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (saving) return
@@ -103,18 +143,22 @@ export function FinancePage() {
     setSaving(true)
     setActionError('')
     try {
-      const entry = await api.createFinancialEntry({ type, description: description.trim(), amount: value, date })
+      const entry = await api.createFinancialEntry({ type, description: description.trim(), amount: value, date,
+        ...(canLinkPayment && selectedAppointmentId ? { appointmentId: selectedAppointmentId } : {}) })
       const inPeriod = isInFilter(entry.date, filter)
       requestVersion.current += 1
       if (inPeriod && visibleData) setData(current => current ? withEntry(current, entry, 1) : current)
-      setNotice(inPeriod
+      const linkedNote = entry.prepaidAppointmentId
+        ? ' Pagamento vinculado ao agendamento; apenas o valor restante será lançado na conclusão.' : ''
+      setNotice((inPeriod
         ? `${entry.type === 'income' ? 'Entrada' : 'Despesa'} de ${money(entry.amount)} registrada. Os totais foram atualizados.`
-        : `Lançamento salvo. Exibindo os totais e movimentações de ${shortDate(entry.date)}.`)
+        : `Lançamento salvo. Exibindo os totais e movimentações de ${shortDate(entry.date)}.`) + linkedNote)
       if (!inPeriod) setFilter({ kind: 'date', value: entry.date })
       setModalOpen(false)
       setDescription('')
       setAmount('')
       setDate(todayInSaoPaulo())
+      setSelectedAppointmentId('')
       setRetry(current => current + 1)
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'Não foi possível salvar lançamento.')
@@ -153,7 +197,7 @@ export function FinancePage() {
       </div>} />
     <div className="finance-toolbar">
       <span>Visão: {filterLabel}{loading && visibleData ? ' · Atualizando...' : ''}</span>
-      <button className="btn btn-primary" onClick={() => { setActionError(''); setNotice(''); setDate(todayInSaoPaulo()); setModalOpen(true) }}>
+      <button className="btn btn-primary" onClick={openNewEntry}>
         <Plus size={18}/> Novo lançamento
       </button>
     </div>
@@ -175,15 +219,15 @@ export function FinancePage() {
               <span className={`finance-type-icon ${entry.type}`}>
                 {entry.type === 'income' ? <ArrowDownLeft size={19}/> : <ArrowUpRight size={19}/>}
               </span>
-              <div className="finance-entry"><strong>{entry.description}</strong><small>{shortDate(entry.date)} {entry.appointmentId ? '· Atendimento' : '· Lançamento manual'}</small></div>
+              <div className="finance-entry"><strong>{entry.description}</strong><small>{shortDate(entry.date)} · {entry.appointmentId ? 'Atendimento' : entry.prepaidAppointmentId ? 'Pagamento vinculado' : 'Lançamento manual'}</small></div>
               <strong className={entry.type === 'income' ? 'income-text' : 'expense-text'}>{entry.type === 'income' ? '+' : '-'} {money(entry.amount)}</strong>
-              {!entry.appointmentId ? <button className="icon-button delete-entry" title="Excluir lançamento"
+              {!entry.appointmentId && entry.prepaidAppointmentStatus !== 'completed' ? <button className="icon-button delete-entry" title="Excluir lançamento"
                 aria-label={`Excluir ${entry.description}`} disabled={removing === entry.id} onClick={() => void remove(entry)}>
                 <Trash2 size={17}/>
               </button> : <span className="delete-placeholder"/>}
             </div>)}</div> : <EmptyState title="Nenhuma movimentação neste período"
             detail="Registre uma entrada ou despesa para acompanhar seu resultado."
-            action={<button className="btn btn-secondary" onClick={() => { setActionError(''); setDate(todayInSaoPaulo()); setModalOpen(true) }}>Adicionar lançamento</button>} />}
+            action={<button className="btn btn-secondary" onClick={openNewEntry}>Adicionar lançamento</button>} />}
         </Panel>
       </> : null}
     {modalOpen ? <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) setModalOpen(false) }}>
@@ -193,7 +237,7 @@ export function FinancePage() {
         <form className="form-stack" onSubmit={submit}>
           <div className="segmented" role="group" aria-label="Tipo de lançamento">
             <button type="button" className={type === 'income' ? 'selected' : ''} aria-pressed={type === 'income'} onClick={() => setType('income')}>Entrada</button>
-            <button type="button" className={type === 'expense' ? 'selected' : ''} aria-pressed={type === 'expense'} onClick={() => setType('expense')}>Despesa</button>
+            <button type="button" className={type === 'expense' ? 'selected' : ''} aria-pressed={type === 'expense'} onClick={() => { setType('expense'); setSelectedAppointmentId('') }}>Despesa</button>
           </div>
           <label>Descrição<input value={description} onChange={e => setDescription(e.target.value)}
             placeholder={type === 'income' ? 'Ex.: Venda de produto' : 'Ex.: Materiais de trabalho'} maxLength={100} required /></label>
@@ -201,13 +245,30 @@ export function FinancePage() {
             <label>Valor (R$)<input type="text" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="0,00" required /></label>
             <label>{type === 'income' ? 'Data do recebimento' : 'Data do pagamento'}
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} required /></label>
+              <input type="date" value={date} onChange={e => { setDate(e.target.value); if (e.target.value > todayInSaoPaulo()) setSelectedAppointmentId('') }} required /></label>
           </div>
-          <p className="finance-date-help">Se a cliente pagou hoje por um atendimento futuro, mantenha a data de hoje. O atendimento pode ser mencionado na descrição.</p>
+          {type === 'income' ? <p className="finance-date-help">Se a cliente pagou hoje por um atendimento futuro, mantenha a data de hoje. Você pode vincular o agendamento quando a data do recebimento não for futura.</p>
+            : <p className="finance-date-help">Informe a data em que a despesa foi paga.</p>}
           {futureDate ? <p className="finance-future-help" role="status">
             Esta data é futura. O valor ficará nos totais dessa data, não nos totais de hoje.
             <button type="button" onClick={() => setDate(todayInSaoPaulo())}>Recebi hoje</button>
           </p> : null}
+          {canLinkPayment ? <div className="finance-appointment-field">
+            <label>Vincular a um agendamento (opcional)
+              <select value={selectedAppointmentId} onChange={event => setSelectedAppointmentId(event.target.value)}
+                disabled={appointmentsLoading || Boolean(appointmentsError) || appointments.length === 0}
+                aria-describedby="finance-appointment-help">
+                <option value="">Sem vínculo com agendamento</option>
+                {appointments.map(item => <option key={item.id} value={item.id}>
+                  {shortDate(item.startsAt.slice(0, 10))} às {item.startsAt.slice(11, 16)} · {item.clientName} · {item.serviceName} · {money(item.price)}
+                </option>)}
+              </select>
+            </label>
+            <p id="finance-appointment-help" className="finance-date-help">Vincule pagamentos antecipados, inclusive sinais, para evitar receita duplicada. Ao concluir o atendimento, somente o valor restante entrará no financeiro.</p>
+            {appointmentsLoading ? <p className="finance-date-help" role="status">Buscando agendamentos dos próximos 90 dias...</p> : null}
+            {appointmentsError ? <p className="finance-appointment-error" role="alert">{appointmentsError} <button type="button" onClick={() => setAppointmentsRetry(value => value + 1)}>Tentar novamente</button></p> : null}
+            {!appointmentsLoading && !appointmentsError && !appointments.length ? <p className="finance-date-help">Nenhum agendamento pendente ou confirmado disponível para vincular. Você ainda pode salvar a entrada sem vínculo.</p> : null}
+          </div> : null}
           {actionError ? <p className="form-error" role="alert">{actionError}</p> : null}
           <div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setModalOpen(false)}>Cancelar</button>
             <button className="btn btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar lançamento'}</button></div>
