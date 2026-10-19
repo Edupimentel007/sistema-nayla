@@ -8,7 +8,7 @@ import { assistantModelStatus, getAssistantModel } from './assistantModel.js';
 
 type Row = Record<string, any>;
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; text: string };
-export type AssistantReply = { answer: string; mode: 'ai' | 'local' };
+export type AssistantReply = { answer: string; mode: 'ai' | 'instant' | 'local' };
 export const assistantStatus = assistantModelStatus;
 const currency = (amount: number) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
@@ -179,7 +179,7 @@ function fallback(message: string, context: ReturnType<typeof contextFor>, analy
   }
   if (analytics) return analyticsReply(query, analytics);
   if (guidance) return guidance;
-  if (/faturamento|receita|ganhei|vendi|vendas/.test(query)) {
+  if (/fatur|receita|ganhei|vendi|vendas/.test(query)) {
     if (/hoje|dia atual|do dia/.test(query)) return `Seu faturamento de hoje (${now.date.split('-').reverse().join('/')}) é ${currency(fromCents(revenue.today))}.`;
     return `Seu faturamento neste mês, até hoje, é ${currency(fromCents(revenue.month))}.`;
   }
@@ -325,6 +325,25 @@ function recentHistory(history: AssistantHistoryItem[]): ModelMessage[] {
   return selected;
 }
 
+function isInstantQuestion(query: string, selectedTool: AssistantToolName | null,
+  analytics: Analytics | null, routingQuery: string) {
+  const directInactive = /qual|quais|quem/.test(query) && /cliente/.test(query)
+    && /volt|retorn|sumid|inativ|nao foi|depois de um mes/.test(query);
+  if (selectedTool || (analytics && !directInactive) || routingQuery !== query || query.length > 120) return false;
+  if (/\b(como|porque|por que|dica|sugest|melhor|analis|compar|explic|estrateg|devo|poderia|recomend|projec|previs|e tambem)\b/.test(query))
+    return false;
+  const currentPeriod = /\b(hoje|dia atual|do dia|este mes|neste mes|nesse mes|mes atual|deste mes)\b/.test(query);
+  const income = /fatur|receit|ganhei|vendi|vendas/.test(query);
+  const expense = /despes|gast|custo/.test(query);
+  if (currentPeriod && income !== expense && !/\b(e|mais)\b/.test(query)) return true;
+  if (/\bhoje\b/.test(query) && /cliente|agenda|agendamento|atendimento|horario|servico/.test(query)
+    && !/fatur|receit|despes|gast|custo|proxim|cancel|desmarc|remarc/.test(query)) return true;
+  if (/proxim|seguinte/.test(query) && /cliente|agendamento|atendimento|horario/.test(query)
+    && !/fatur|receit|despes|gast|custo/.test(query)) return true;
+  if (/desmarc|cancel/.test(query) && /\b(quem|qual|quais)\b/.test(query)) return true;
+  return directInactive;
+}
+
 export async function answerAssistant(businessId: string, message: string,
   history: AssistantHistoryItem[] = []): Promise<AssistantReply> {
   const context = contextFor(businessId);
@@ -340,6 +359,8 @@ export async function answerAssistant(businessId: string, message: string,
     ? analyticsFor(businessId, requestedPeriod(periodQuery)) : null;
   const localAnswer = analytics && analyticsQuery !== query
     ? analyticsReply(analyticsQuery, analytics) : fallback(message, context, analytics);
+  if (isInstantQuestion(query, selectedTool, analytics, routingQuery))
+    return { answer: localAnswer, mode: 'instant' };
   const status = await assistantStatus();
   const model = status.aiAvailable ? getAssistantModel() : null;
   if (!model) return { answer: localAnswer, mode: 'local' };
@@ -369,7 +390,7 @@ export async function answerAssistant(businessId: string, message: string,
       ].join(' '),
       messages,
       tools,
-      stopWhen: selectedTool ? stepCountIs(3) : undefined,
+      stopWhen: selectedTool ? stepCountIs(2) : undefined,
       maxOutputTokens: isSmallQwen3 ? 240 : 900,
       temperature: 0.3,
       maxRetries: 0,

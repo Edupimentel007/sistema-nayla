@@ -116,7 +116,7 @@ export function AssistantPage() {
       } else {
         const history = messages.slice(-8).map(({ role, text: previous }) => ({ role, text: previous }))
         const response = await api.assistant(text, history)
-        setModelStatus(current => ({
+        if (response.mode !== 'instant') setModelStatus(current => ({
           provider: 'ollama', model: current?.model || 'local',
           aiAvailable: response.mode === 'ai',
           ...(response.mode === 'local' ? { reason: current?.reason || 'request_failed' } : {}),

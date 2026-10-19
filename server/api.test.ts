@@ -426,7 +426,7 @@ describe('Nayla API', () => {
       body: JSON.stringify({ message: 'Qual meu faturamento de hoje?' }) }, ownerCookie);
     expect(assistant.status).toBe(200);
     expect(assistant.body.answer).toContain('123,45');
-    expect(assistant.body.mode).toBe('local');
+    expect(assistant.body.mode).toBe('instant');
     expect((await request('/api/assistant/status', {}, ownerCookie)).body.aiAvailable).toBe(false);
     const serviceAdvice = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Quais meus serviços disponíveis?' }) }, ownerCookie);

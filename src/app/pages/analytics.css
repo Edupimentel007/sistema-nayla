@@ -67,15 +67,33 @@
 .analysis-surface h2 { font-size: 18px; margin: 0 0 6px; letter-spacing: -.035em; }
 .analysis-surface header p { margin: 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .analysis-chart-panel { min-height: 345px; }
-.analysis-chart-wrap { width: 100%; overflow-x: auto; }
-.analysis-chart-wrap svg { display: block; width: 100%; min-width: 460px; height: 215px; }
+.analysis-chart-wrap { width: 100%; }
+.analysis-chart-scroll { overflow-x: auto; }
+.analysis-chart-wrap svg { display: block; width: 100%; min-width: 540px; height: 215px; }
 .analysis-gridline { stroke: var(--analysis-line); stroke-width: 1; }
 .analysis-axis-label { fill: var(--muted); font: 10px system-ui, sans-serif; }
+.analysis-selection-line { stroke: var(--analysis-slate); stroke-width: 1; stroke-dasharray: 4 4; opacity: .75; }
 .analysis-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .analysis-line.rose { stroke: var(--analysis-rose); }
 .analysis-line.sage { stroke: var(--analysis-sage); }
 .analysis-line.slate { stroke: var(--analysis-slate); }
 .analysis-point { fill: var(--analysis-rose); stroke: var(--surface); stroke-width: 1; }
+.analysis-selected-point { fill: var(--surface); stroke-width: 3; }
+.analysis-selected-point.rose { stroke: var(--analysis-rose); }
+.analysis-selected-point.sage { stroke: var(--analysis-sage); }
+.analysis-selected-point.slate { stroke: var(--analysis-slate); }
+.analysis-chart-inspector { display: grid; gap: 7px; padding: 12px 13px; border: 1px solid var(--analysis-line); border-radius: 9px; background: var(--analysis-soft); }
+.analysis-chart-inspector label { color: var(--muted); font-size: 10px; font-weight: 700; }
+.analysis-chart-inspector input { width: 100%; margin: 0; accent-color: var(--analysis-rose); cursor: pointer; }
+.analysis-selected-values { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 18px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.analysis-selected-values > strong { color: var(--ink); }
+.analysis-selected-values > span { color: var(--muted); }
+.analysis-selected-values b { color: var(--ink); }
+.analysis-chart-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-top: 9px; }
+.analysis-chart-summary > div { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--analysis-line); border-radius: 8px; font-size: 10px; }
+.analysis-chart-summary strong { color: var(--ink); }
+.analysis-chart-summary span { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.analysis-chart-summary small { color: var(--muted); line-height: 1.4; }
 .analysis-chart-details { margin-top: 13px; border-top: 1px solid var(--analysis-line); padding-top: 10px; }
 .analysis-chart-details summary { cursor: pointer; color: var(--ink); font-size: 11px; font-weight: 700; }
 .analysis-chart-details .analysis-table-wrap { margin-top: 10px; max-height: 270px; overflow: auto; }
@@ -107,6 +125,25 @@
 .analysis-bar-track { display: block; height: 7px; border-radius: 10px; background: var(--analysis-soft); overflow: hidden; }
 .analysis-bar-track > span { display: block; height: 100%; border-radius: inherit; background: var(--analysis-rose); }
 .analysis-bar-row:nth-child(even) .analysis-bar-track > span { background: var(--analysis-sage); }
+.analysis-period-compare, .analysis-grouped-bars { display: grid; gap: 13px; }
+.analysis-period-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 10px; }
+.analysis-period-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.analysis-period-legend span::before { content: ''; width: 12px; height: 7px; border-radius: 2px; background: var(--analysis-slate); }
+.analysis-period-legend span:nth-child(2)::before { background: var(--analysis-rose); }
+.analysis-period-row { display: grid; grid-template-columns: minmax(140px, 190px) repeat(2, minmax(0, 1fr)); align-items: center; gap: 8px 15px; border-top: 1px solid var(--analysis-line); padding-top: 11px; font-size: 11px; }
+.analysis-period-row > strong { overflow-wrap: anywhere; }
+.analysis-period-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.analysis-period-bar > span:first-child { height: 10px; border-radius: 3px; background: var(--analysis-slate); }
+.analysis-period-bar > span:first-child.current { background: var(--analysis-rose); }
+.analysis-period-bar > span:last-child { font-size: 10px; white-space: nowrap; }
+.analysis-grouped-row { display: grid; grid-template-columns: minmax(115px, 180px) repeat(2, minmax(0, 1fr)); align-items: center; gap: 8px 15px; border-top: 1px solid var(--analysis-line); padding-top: 11px; }
+.analysis-grouped-row .analysis-bar-copy { display: grid; gap: 3px; }
+.analysis-grouped-row .analysis-bar-copy span { text-align: left; font-size: 10px; }
+.analysis-grouped-line { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; font-size: 10px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.analysis-grouped-line > span { min-width: 2ch; text-align: right; }
+.analysis-grouped-line .analysis-bar-track { height: 9px; }
+.analysis-grouped-line .analysis-bar-track i { display: block; height: 100%; border-radius: inherit; background: var(--analysis-slate); }
+.analysis-grouped-line .analysis-bar-track i.second { background: var(--analysis-rose); }
 .analysis-definition {
   display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 11px;
   line-height: 1.6; margin: 18px 0 0;
@@ -148,6 +185,8 @@
   .analysis-stat > strong { font-size: 21px; }
   .analysis-surface { padding: 18px; }
   .analysis-tabs button { padding: 11px 12px; }
+  .analysis-period-row, .analysis-grouped-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 11px; }
+  .analysis-period-row > strong, .analysis-grouped-row .analysis-bar-copy { grid-column: 1 / -1; }
 }
 @media (max-width: 420px) {
   .analysis-lead-stats { gap: 8px; }

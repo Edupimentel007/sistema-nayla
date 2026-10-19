@@ -194,12 +194,25 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
         message: 'Quanto foi meu faturamento de hoje?',
       }) }, cookie);
       assert.equal(today.status, 200);
-      assert.equal(today.body.mode, 'ai');
+      assert.equal(today.body.mode, 'instant');
       assert.match(today.body.answer, /123,45/);
-      assert.deepEqual(modelCalls[0].toolNames, []);
-      assert.ok(modelCalls[0].requestChars < 3500, `Prompt diário: ${modelCalls[0].requestChars} caracteres`);
-      assert.match(String(modelCalls[0].messages.find(item => item.role === 'user')?.content), /faturamentoHoje/);
-      assert.match(String(modelCalls[0].messages.at(-1)?.content), /\/no_think/);
+      assert.equal(modelCalls.length, 0);
+
+      const month = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Quanto faturei este mês?',
+      }) }, cookie);
+      assert.equal(month.status, 200);
+      assert.equal(month.body.mode, 'instant');
+      assert.match(month.body.answer, /123,45/);
+      assert.equal(modelCalls.length, 0);
+
+      const todayAgenda = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Quais são os atendimentos de hoje?',
+      }) }, cookie);
+      assert.equal(todayAgenda.status, 200);
+      assert.equal(todayAgenda.body.mode, 'instant');
+      assert.match(todayAgenda.body.answer, /hoje/i);
+      assert.equal(modelCalls.length, 0);
 
       const advice = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
         message: 'Sou manicure. Como posso aumentar o retorno das clientes sem reduzir preços?',
@@ -207,9 +220,10 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
       assert.equal(advice.status, 200);
       assert.equal(advice.body.mode, 'ai');
       assert.match(advice.body.answer, /retorno/);
-      assert.deepEqual(modelCalls[1].toolNames, []);
-      assert.ok(modelCalls[1].requestChars < 4500, `Prompt livre: ${modelCalls[1].requestChars} caracteres`);
-      assert.match(String(modelCalls[1].messages.find(item => item.role === 'user')?.content), /orientacaoDaArea/);
+      assert.deepEqual(modelCalls[0].toolNames, []);
+      assert.ok(modelCalls[0].requestChars < 4500, `Prompt livre: ${modelCalls[0].requestChars} caracteres`);
+      assert.match(String(modelCalls[0].messages.find(item => item.role === 'user')?.content), /orientacaoDaArea/);
+      assert.match(String(modelCalls[0].messages.at(-1)?.content), /\/no_think/);
 
       const details = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
         message: 'Qual foi meu faturamento nos últimos 7 dias?',
@@ -217,10 +231,10 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
       assert.equal(details.status, 200);
       assert.equal(details.body.mode, 'ai');
       assert.match(details.body.answer, /123,45/);
+      assert.deepEqual(modelCalls[1].toolNames, ['consultar_financeiro']);
       assert.deepEqual(modelCalls[2].toolNames, ['consultar_financeiro']);
-      assert.deepEqual(modelCalls[3].toolNames, ['consultar_financeiro']);
-      assert.match(JSON.stringify(modelCalls[3].messages.filter(item => item.role === 'tool')), /123\.45/);
-      assert.equal(modelCalls.length, 4);
+      assert.match(JSON.stringify(modelCalls[2].messages.filter(item => item.role === 'tool')), /123\.45/);
+      assert.equal(modelCalls.length, 3);
   });
 
   it('routes tomorrow, a written date and yesterday absence to the agenda query',

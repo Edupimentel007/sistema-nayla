@@ -27,7 +27,7 @@ export type Business = {
 export type User = { id: string; name: string; email: string; role: 'owner' }
 export type Session = { user: User; business: Business }
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; text: string }
-export type AssistantReply = { answer: string; mode: 'ai' | 'local' }
+export type AssistantReply = { answer: string; mode: 'ai' | 'instant' | 'local' }
 export type AssistantStatus = { aiAvailable: boolean; provider: 'ollama'; model: string; reason?: string }
 
 export type BillingPlan = 'monthly' | 'annual'

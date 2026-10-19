@@ -65,12 +65,51 @@ function BarRows({ rows, format = quantity }: {
 }
 
 type SeriesKey = 'income' | 'expenses' | 'completed' | 'ticketAverage'
+const compactMoney = (value: number) => `R$ ${new Intl.NumberFormat('pt-BR', {
+  notation: 'compact', maximumFractionDigits: 1,
+}).format(value)}`
+
+function PeriodComparison({ rows }: {
+  rows: Array<{ label: string; comparison: Comparison; format?: (value: number) => string }>
+}) {
+  return <div className="analysis-period-compare">
+    <div className="analysis-period-legend"><span>Período anterior</span><span>Período selecionado</span></div>
+    {rows.map(({ label, comparison, format = quantity }) => {
+      const maximum = Math.max(1, comparison.current, comparison.previous)
+      return <div className="analysis-period-row" key={label}>
+        <strong>{label}</strong>
+        <div className="analysis-period-bar"><span className="previous" style={{ width: `${Math.max(0, comparison.previous / maximum * 100)}%` }} />
+          <span>{format(comparison.previous)}</span></div>
+        <div className="analysis-period-bar"><span className="current" style={{ width: `${Math.max(0, comparison.current / maximum * 100)}%` }} />
+          <span>{format(comparison.current)}</span></div>
+      </div>
+    })}
+  </div>
+}
+
+function GroupedBars({ rows, labels }: {
+  rows: Array<{ key: string; label: string; first: number; second: number; detail?: string }>
+  labels: [string, string]
+}) {
+  const maximum = Math.max(1, ...rows.map(row => row.first))
+  return <div className="analysis-grouped-bars">
+    <div className="analysis-period-legend"><span>{labels[0]}</span><span>{labels[1]}</span></div>
+    {rows.map(row => <div className="analysis-grouped-row" key={row.key}>
+      <div className="analysis-bar-copy"><strong>{row.label}</strong>{row.detail ? <span>{row.detail}</span> : null}</div>
+      <div className="analysis-grouped-line"><span>{quantity(row.first)}</span><div className="analysis-bar-track"><i className="first" style={{ width: `${row.first / maximum * 100}%` }} /></div></div>
+      <div className="analysis-grouped-line"><span>{quantity(row.second)}</span><div className="analysis-bar-track"><i className="second" style={{ width: `${row.second / maximum * 100}%` }} /></div></div>
+    </div>)}
+  </div>
+}
+
 function TrendChart({ data, keys, title }: {
   data: Analytics['series']; keys: Array<{ key: SeriesKey; label: string; tone: 'rose' | 'sage' | 'slate' }>
   title: string
 }) {
+  const [selectedIndex, setSelectedIndex] = useState(Math.max(0, data.length - 1))
+  const selected = data[Math.min(selectedIndex, data.length - 1)]
   const maximum = Math.max(1, ...data.flatMap(day => keys.map(line => day[line.key] || 0)))
-  const xAt = (index: number) => 48 + index / Math.max(1, data.length - 1) * 690
+  const xAt = (index: number) => 88 + index / Math.max(1, data.length - 1) * 650
   const yAt = (value: number) => 184 - value / maximum * 145
   const paths = (key: SeriesKey) => {
     const segments: string[] = []
@@ -90,13 +129,15 @@ function TrendChart({ data, keys, title }: {
   if (!data.some(day => keys.some(line => (day[line.key] || 0) > 0)))
     return <div className="analysis-chart-empty">Ainda não há dados suficientes para desenhar este gráfico no período.</div>
   return <div className="analysis-chart-wrap">
-    <svg viewBox="0 0 780 228" role="img" aria-label={title} preserveAspectRatio="none">
+    <div className="analysis-chart-scroll"><svg viewBox="0 0 780 228" role="img" aria-label={title} preserveAspectRatio="xMinYMid meet">
       {[0, 1, 2, 3].map(step => <g key={step}>
-        <line x1="48" x2="738" y1={184 - step * 48} y2={184 - step * 48} className="analysis-gridline" />
-        <text x="42" y={188 - step * 48} textAnchor="end" className="analysis-axis-label">
-          {keys.some(key => key.key !== 'completed') ? money(maximum * step / 3).replace(',00', '') : Math.round(maximum * step / 3)}
+        <line x1="88" x2="738" y1={184 - step * 48} y2={184 - step * 48} className="analysis-gridline" />
+        <text x="82" y={188 - step * 48} textAnchor="end" className="analysis-axis-label">
+          {keys.some(key => key.key !== 'completed') ? compactMoney(maximum * step / 3) : quantity(Math.round(maximum * step / 3))}
         </text>
       </g>)}
+      <line x1={xAt(Math.min(selectedIndex, data.length - 1))} x2={xAt(Math.min(selectedIndex, data.length - 1))}
+        y1="39" y2="184" className="analysis-selection-line" />
       {keys.flatMap(line => paths(line.key).map((path, index) => <path key={`${line.key}-${index}`}
         d={path} pathLength={1} className={`analysis-line ${line.tone}`} />))}
       {keys.filter(line => line.key === 'ticketAverage').flatMap(line => data.map((day, index) =>
@@ -104,12 +145,34 @@ function TrendChart({ data, keys, title }: {
           cx={xAt(index)} cy={yAt(day[line.key]!)} r="3" className={`analysis-point ${line.tone}`}>
           <title>{fullDateText(day.date)}: {displayValue(line.key, day[line.key])}</title>
         </circle>))}
+      {keys.map(line => selected[line.key] === null ? null : <circle key={`selected-${line.key}`}
+        cx={xAt(Math.min(selectedIndex, data.length - 1))} cy={yAt(selected[line.key]!)} r="5"
+        className={`analysis-selected-point ${line.tone}`} />)}
       {[0, Math.floor((data.length - 1) / 2), data.length - 1].map(index =>
-        <text key={index} x={48 + index / Math.max(1, data.length - 1) * 690} y="215"
+        <text key={index} x={xAt(index)} y="215"
           textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}
           className="analysis-axis-label">{dateText(data[index].date)}</text>)}
-    </svg>
+    </svg></div>
     <div className="analysis-legend">{keys.map(line => <span key={line.key} className={line.tone}>{line.label}</span>)}</div>
+    <div className="analysis-chart-inspector">
+      <label htmlFor={`analysis-date-${title.replace(/\W/g, '-')}`}>Explore os dias do gráfico</label>
+      <input id={`analysis-date-${title.replace(/\W/g, '-')}`} type="range" min="0" max={data.length - 1}
+        value={Math.min(selectedIndex, data.length - 1)} onChange={event => setSelectedIndex(Number(event.target.value))}
+        aria-valuetext={fullDateText(selected.date)} />
+      <div className="analysis-selected-values" aria-live="polite"><strong>{fullDateText(selected.date)}</strong>
+        {keys.map(line => <span key={line.key}>{line.label}: <b>{displayValue(line.key, selected[line.key])}</b></span>)}
+      </div>
+    </div>
+    <div className="analysis-chart-summary">{keys.map(line => {
+      const valid = data.filter(day => day[line.key] !== null)
+      const peak = valid.reduce<typeof valid[number] | null>((best, day) =>
+        !best || day[line.key]! > best[line.key]! ? day : best, null)
+      const total = line.key === 'ticketAverage' ? null : valid.reduce((sum, day) => sum + day[line.key]!, 0)
+      return <div key={line.key}><strong>{line.label}</strong>
+        <span>{total === null ? `${valid.length} dia(s) com atendimento` : `Total: ${displayValue(line.key, total)}`}</span>
+        <small>{peak ? `Maior dia: ${fullDateText(peak.date)} (${displayValue(line.key, peak[line.key])})` : 'Sem valor no período'}</small>
+      </div>
+    })}</div>
     <details className="analysis-chart-details"><summary>Ver valores dia a dia</summary>
       <div className="analysis-table-wrap"><table className="analysis-table">
         <thead><tr><th scope="col">Data</th>{keys.map(line => <th scope="col" key={line.key}>{line.label}</th>)}</tr></thead>
@@ -136,6 +199,15 @@ function Overview({ data }: { data: Analytics }) {
         <TrendChart data={data.series} title="Gráfico diário de atendimentos concluídos" keys={[{ key: 'completed', label: 'Concluídos', tone: 'slate' }]} />
       </section>
     </div>
+    <section className="analysis-surface"><header><span>Comparação</span><h2>Período selecionado e período anterior</h2>
+      <p>Valores totais e atendimentos dos dois intervalos de {data.period.days} dias. Cada indicador usa sua própria escala.</p></header>
+      <PeriodComparison rows={[
+        { label: 'Entradas registradas', comparison: data.overview.income, format: money },
+        { label: 'Despesas registradas', comparison: data.overview.expenses, format: money },
+        { label: 'Atendimentos concluídos', comparison: data.overview.completed },
+        { label: 'Ticket médio', comparison: data.overview.ticketAverage, format: money },
+      ]} />
+    </section>
     <div className="analysis-grid notes">{data.insights.map(item => <Note key={item.category} {...item} />)}</div>
   </div>
 }
@@ -161,19 +233,28 @@ function Clients({ data }: { data: Analytics }) {
       </section>
       <section className="analysis-surface"><header><span>Frequência</span><h2>Quantas vezes vieram</h2></header>
         <BarRows rows={[
-          { key: 'one', label: '1 atendimento', value: clients.frequency.one },
-          { key: 'two', label: '2 atendimentos', value: clients.frequency.two },
-          { key: 'three', label: '3 ou mais', value: clients.frequency.threePlus },
+          { key: 'one', label: '1 atendimento', value: clients.frequency.one, detail: total ? percent(clients.frequency.one / total * 100) : undefined },
+          { key: 'two', label: '2 atendimentos', value: clients.frequency.two, detail: total ? percent(clients.frequency.two / total * 100) : undefined },
+          { key: 'three', label: '3 ou mais', value: clients.frequency.threePlus, detail: total ? percent(clients.frequency.threePlus / total * 100) : undefined },
         ]} />
         <DataExplanation>Contagem de atendimentos concluídos de cada cliente dentro do período selecionado.</DataExplanation>
       </section>
     </div>
+    <section className="analysis-surface"><header><span>Fidelização</span><h2>Clientes do período anterior que voltaram</h2>
+      <p>De {quantity(clients.retention.eligible)} cliente(s) atendida(s) no período anterior, {quantity(clients.retention.returned)} tiveram atendimento concluído também neste período.</p></header>
+      {clients.retention.eligible ? <BarRows rows={[
+        { key: 'returned', label: 'Voltaram', value: clients.retention.returned, detail: percent(clients.retention.rate) },
+        { key: 'not-returned', label: 'Ainda não voltaram', value: clients.retention.eligible - clients.retention.returned },
+      ]} /> : <p className="analysis-empty">Ainda não há clientes atendidas no período anterior para comparar.</p>}
+      <DataExplanation>{data.definitions.retention}</DataExplanation>
+    </section>
     <div className="analysis-grid two">
       <section className="analysis-surface"><header><span>Relacionamento</span><h2>Clientes que mais vieram</h2></header>
-        {clients.top.length ? <div className="analysis-ranked">{clients.top.map((client, index) => <div key={client.id}>
-          <span>{String(index + 1).padStart(2, '0')}</span><strong>{client.name}</strong>
-          <small>{client.visits} visita(s) · {money(client.completedValue)}</small>
-        </div>)}</div> : <p className="analysis-empty">Sem atendimentos concluídos no período.</p>}
+        {clients.top.length ? <BarRows rows={clients.top.map((client, index) => ({
+          key: client.id, label: `${index + 1}. ${client.name}`, value: client.visits,
+          detail: `${money(client.completedValue)} em preços de serviços`,
+        }))} /> : <p className="analysis-empty">Sem atendimentos concluídos no período.</p>}
+        <DataExplanation>Visitas e valores correspondem apenas aos atendimentos concluídos no período.</DataExplanation>
       </section>
       <section className="analysis-surface"><header><span>Oportunidades de retorno</span><h2>Sem visita há 30 dias</h2>
         <p>{clients.inactiveCount} cliente(s) no histórico inteiro, sem agendamento futuro ativo.</p></header>
@@ -212,6 +293,13 @@ function Ticket({ data }: { data: Analytics }) {
       <TrendChart data={data.series} title="Gráfico diário do ticket médio dos atendimentos concluídos"
         keys={[{ key: 'ticketAverage', label: 'Ticket médio', tone: 'rose' }]} />
     </section>
+    <section className="analysis-surface"><header><span>Comparação</span><h2>Ticket e volume de atendimentos</h2>
+      <p>O ticket usa preços dos agendamentos concluídos; cada linha tem escala própria.</p></header>
+      <PeriodComparison rows={[
+        { label: 'Ticket médio', comparison: data.overview.ticketAverage, format: money },
+        { label: 'Atendimentos concluídos', comparison: data.overview.completed },
+      ]} />
+    </section>
     <Insight data={data} category="ticket" />
   </div>
 }
@@ -225,6 +313,13 @@ function Services({ data }: { data: Analytics }) {
         detail: `${service.completed} concluído(s) · ${percent(service.valueSharePercent)} do valor`,
       }))} format={money} /> : <p className="analysis-empty">Nenhum serviço foi agendado no período.</p>}
       <DataExplanation>Serviços ativos sem reserva aparecem com zero. Serviços desativados continuam visíveis quando tiveram agendamento neste período.</DataExplanation>
+    </section>
+    <section className="analysis-surface"><header><span>Demanda e execução</span><h2>Reservas e atendimentos concluídos</h2>
+      <p>Compare o volume por serviço. Reservas incluem todos os estados, inclusive cancelamentos e faltas.</p></header>
+      {data.services.length ? <GroupedBars labels={['Reservas', 'Concluídos']} rows={data.services.map(service => ({
+        key: service.id, label: service.name, first: service.bookings, second: service.completed,
+        detail: service.bookings ? `${percent(service.completed / service.bookings * 100)} concluídos` : 'Sem reservas',
+      }))} /> : <p className="analysis-empty">Sem serviços cadastrados ou agendados neste período.</p>}
     </section>
     <section className="analysis-surface"><header><span>Detalhamento</span><h2>Atividade de cada serviço</h2>
       <p>Veja demanda, execução, ticket e perdas de agenda lado a lado.</p></header>
@@ -255,6 +350,14 @@ function Financial({ data }: { data: Analytics }) {
       ]} />
       <DataExplanation>{data.definitions.revenue} O saldo mostra somente os registros feitos no app, não o saldo bancário.</DataExplanation>
     </section>
+    <section className="analysis-surface"><header><span>Comparação do caixa</span><h2>Entradas, despesas e saldo entre períodos</h2>
+      <p>Cada linha usa escala própria; valores negativos de saldo aparecem no número, sem barra proporcional.</p></header>
+      <PeriodComparison rows={[
+        { label: 'Entradas', comparison: data.overview.income, format: money },
+        { label: 'Despesas', comparison: data.overview.expenses, format: money },
+        { label: 'Saldo registrado', comparison: data.overview.balance, format: money },
+      ]} />
+    </section>
     <Insight data={data} category="finance" />
   </div>
 }
@@ -279,13 +382,17 @@ function Agenda({ data }: { data: Analytics }) {
     </div>
     <div className="analysis-grid two">
       <section className="analysis-surface"><header><span>Estado da agenda</span><h2>Resultado dos agendamentos</h2></header>
-        <BarRows rows={labels.map(item => ({ ...item, key: item.key }))} />
+        <BarRows rows={labels.map(item => ({ ...item, key: item.key,
+          detail: data.appointments.denominator ? percent(item.value / data.appointments.denominator * 100) : undefined,
+        }))} />
+        <DataExplanation>Percentuais calculados sobre todos os agendamentos com data no período.</DataExplanation>
       </section>
       <section className="analysis-surface"><header><span>Distribuição semanal</span><h2>Agendamentos por dia da semana</h2></header>
-        <BarRows rows={[1, 2, 3, 4, 5, 6, 0].map(day => ({
+        <GroupedBars labels={['Agendamentos', 'Concluídos']} rows={[1, 2, 3, 4, 5, 6, 0].map(day => ({
           key: String(day), label: dayNames[day],
-          value: data.appointments.weekday[day]?.bookings || 0,
-          detail: `${data.appointments.weekday[day]?.completed || 0} concluído(s)`,
+          first: data.appointments.weekday[day]?.bookings || 0,
+          second: data.appointments.weekday[day]?.completed || 0,
+          detail: `${data.appointments.weekday[day]?.cancelled || 0} cancelados · ${data.appointments.weekday[day]?.noShow || 0} faltas`,
         }))} />
       </section>
     </div>
