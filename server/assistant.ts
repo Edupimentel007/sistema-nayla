@@ -5,6 +5,7 @@ import { guidanceAnswer, isBusinessAdviceQuestion, personalizedBusinessAdvice,
   type AssistantBusiness } from './assistantGuidance.js';
 import { assistantKnowledgeFor } from './assistantKnowledge.js';
 import { createAssistantDataTools } from './assistantDataTools.js';
+import { researchExternalAdvice, type ExternalResearch } from './assistantExternalResearch.js';
 import { assistantModelStatus, getAssistantModel } from './assistantModel.js';
 
 type Row = Record<string, any>;
@@ -354,31 +355,89 @@ function fallbackForTool(query: string, selectedTool: AssistantToolName, busines
   return 'Não consegui consultar esse detalhe ou período agora. Tente novamente em instantes ou confira os registros em Agenda, Financeiro, Clientes e Análises. Não vou substituir a consulta por números de outro período.';
 }
 
+// Only these generic subjects and the catalog's area IDs may leave the server.
+// Never pass the message, business name, client records or financial figures to a source.
+function externalAdviceTopic(query: string) {
+  if (/tendenc|novidad|\bem alta\b/.test(query)) return 'tendencias';
+  if (/precific|preco|ticket|cobr|margem|lucro/.test(query)) return 'precos';
+  if (/fideliz|retorn|reter|satisfac/.test(query)) return 'fidelizacao';
+  if (/divulg|marketing|atrair|captar|conquistar|instagram|redes sociais/.test(query)) return 'divulgacao';
+  return 'diferenciacao';
+}
+
+function adviceFocusService(query: string, business: AssistantBusiness, analytics: Analytics) {
+  const mentioned = assistantKnowledgeFor(query, []).specialtyGuides
+    .find(guide => business.specialties.includes(guide.area))?.area;
+  const mostBooked = [...analytics.services].sort((a, b) => b.bookings - a.bookings)
+    .find(service => business.specialties.includes(service.category));
+  const area = mentioned || mostBooked?.category || business.specialties[0];
+  return [...analytics.services].filter(service => service.category === area)
+    .sort((a, b) => b.bookings - a.bookings)[0]?.name
+    || business.services.find(service => service.category === area)?.name
+    || 'um serviço que você oferece';
+}
+
+function addExternalAdvice(localAnswer: string, research: ExternalResearch,
+  focusService: string): string {
+  if (research.status !== 'ok' || !research.sources.length) {
+    const reason = research.status === 'unavailable'
+      ? 'Não consegui acessar fontes públicas nesta resposta.'
+      : 'Não encontrei uma fonte pública suficientemente relacionada a essa pergunta.';
+    return `${localAnswer}\n\n${reason} As orientações acima usam apenas os dados e serviços do seu espaço.`;
+  }
+  const prepared = localAnswer.replace(
+    'sem uma fonte externa atual nesta resposta, não posso afirmar o que está em alta no mercado.',
+    'consultei fontes públicas sobre o setor; elas trazem ideias para testar, mas não provam o que está em alta na sua região.',
+  );
+  const sources = research.sources.slice(0, 3);
+  const applications = sources.map((source, index) => source.actionHint
+    ? `${index + 1}. ${source.actionHint}`
+    : `${index + 1}. O artigo traz esta ideia: “${source.excerpt || source.title}”`);
+  return `${prepared}\n\nComo aplicar as fontes consultadas a ${focusService}:\n${applications.join('\n')}`
+    + `\n\nFontes consultadas:\n${sources.map(source => `- ${source.title} — ${source.url}`).join('\n')}`;
+}
+
 export async function answerAssistant(businessId: string, message: string,
   history: AssistantHistoryItem[] = []): Promise<AssistantReply> {
   const context = contextFor(businessId);
   const query = normalize(message);
   const lastUser = history.slice().reverse().find(item => item.role === 'user')?.text || '';
   const hasOwnSubject = /fatur|receit|despes|gast|cust|financeir|saldo|caixa|entrada|saida|lancament|agenda|agendament|atendimento|horario|cliente|falt|servic|ticket|grafico|analise|indicador|cancel|remarc|reagend|retorn|inativ/.test(query);
+  const adviceFollowup = Boolean(lastUser && query.length < 80
+    && isBusinessAdviceQuestion(lastUser) && !isBusinessAdviceQuestion(query)
+    && /\bmais\s+(?:algumas?\s+)?(?:dicas?|ideias?|sugestoes?)\b|\bo que mais\b|\balgo mais\b/.test(query));
   const routingQuery = message.length < 60 && lastUser && !hasOwnSubject
+    && !isBusinessAdviceQuestion(query) && !adviceFollowup
     ? normalize(`${lastUser} ${message}`) : query;
   const proposedTool = toolForQuestion(routingQuery);
-  const adviceCandidate = routingQuery === query && isBusinessAdviceQuestion(query);
-  const standardPeriodAdvice = adviceCandidate && /\b(?:7|30|60|90)\s*dias?\b/.test(query)
-    && !/\b(?:anteriores?|passad[oa]s?|ontem|amanha|trimestre|ano|entre)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(query);
-  const selectedTool = proposedTool === 'consultar_financeiro' && standardPeriodAdvice
-    ? null : proposedTool;
+  const adviceCandidate = adviceFollowup || routingQuery === query && isBusinessAdviceQuestion(query);
+  const adviceInput = adviceFollowup ? normalize(`${lastUser} ${message}`) : query;
+  const standardPeriodAdvice = adviceCandidate && /\b(?:7|30|60|90)\s*dias?\b/.test(adviceInput)
+    && !/\b(?:anteriores?|passad[oa]s?|ontem|amanha|trimestre|ano|entre)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(adviceInput);
+  const selectedTool = standardPeriodAdvice ? null : proposedTool;
   const adviceQuestion = !selectedTool && adviceCandidate;
   const analyticsQuery = analyticalQuestion(query) ? query : routingQuery;
-  const periodQuery = /\b(?:7|30|60|90)\s*dias?\b/.test(query) ? query : analyticsQuery;
+  const periodQuery = /\b(?:7|30|60|90)\s*dias?\b/.test(adviceInput) ? adviceInput : analyticsQuery;
   const analytics = !selectedTool && (analyticalQuestion(analyticsQuery) || adviceQuestion)
     ? analyticsFor(businessId, requestedPeriod(periodQuery)) : null;
   const localAnswer = selectedTool
     ? fallbackForTool(routingQuery, selectedTool, businessId)
     : analytics && analyticsQuery !== query
       ? analyticsReply(analyticsQuery, analytics) : fallback(message, context, analytics);
-  if (adviceQuestion && analytics)
-    return { answer: personalizedBusinessAdvice(query, context.business, analytics), mode: 'instant' };
+  if (adviceQuestion && analytics) {
+    const localAdvice = personalizedBusinessAdvice(adviceInput, context.business, analytics);
+    if (process.env.NODE_ENV === 'test' || process.env.NAYLA_EXTERNAL_RESEARCH === 'off')
+      return { answer: localAdvice, mode: 'instant' };
+    let researched: ExternalResearch;
+    try {
+      researched = await researchExternalAdvice(
+        externalAdviceTopic(adviceInput), context.business.specialties);
+    } catch {
+      researched = { status: 'unavailable', summary: '', sources: [] };
+    }
+    return { answer: addExternalAdvice(localAdvice, researched,
+      adviceFocusService(adviceInput, context.business, analytics)), mode: 'instant' };
+  }
   if (isInstantQuestion(query, selectedTool, analytics, routingQuery))
     return { answer: localAnswer, mode: 'instant' };
   const status = await assistantStatus();

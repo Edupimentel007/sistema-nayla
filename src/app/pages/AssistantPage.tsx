@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, ArrowUp, CalendarDays, CircleDollarSign, Heart, History, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowUp, CalendarDays, CircleDollarSign, ExternalLink, Heart, History, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { api, type Appointment, type AssistantConversation, type AssistantStatus, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
 import { useAuth } from '../contexts'
 import { dateTime, PageHeading, Panel } from '../shared'
@@ -25,16 +25,17 @@ const prompts = [
   { icon: <Heart size={18}/>, text: 'Quais clientes não voltaram há mais de um mês?' },
   { icon: <Sparkles size={18}/>, text: 'Preciso remarcar uma cliente por imprevisto' },
   { icon: <Heart size={18}/>, text: 'Como posso aumentar o retorno das clientes da minha área?' },
+  { icon: <Sparkles size={18}/>, text: 'Como posso me destacar no meu ramo?' },
   { icon: <CircleDollarSign size={18}/>, text: 'Como registro uma entrada no financeiro?' },
 ]
 
 function modelStatusText(status: AssistantStatus | null) {
-  if (!status) return 'Verificando a conversa livre'
+  if (!status) return 'Verificando a IA local'
   if (status.aiAvailable) return 'Conversa livre disponível'
-  if (status.reason === 'model_missing') return 'Conversa livre ainda não ativada · consultas disponíveis'
-  if (status.reason === 'server_offline') return 'Conversa livre temporariamente indisponível'
-  if (status.reason === 'request_failed') return 'Conversa livre não respondeu · consultas disponíveis'
-  return 'Chat livre indisponível · consultas do app disponíveis'
+  if (status.reason === 'model_missing') return 'IA local ainda não ativada · dicas e consultas disponíveis'
+  if (status.reason === 'server_offline') return 'IA local temporariamente indisponível · dicas disponíveis'
+  if (status.reason === 'request_failed') return 'IA local não respondeu · dicas e consultas disponíveis'
+  return 'IA local indisponível · dicas e consultas disponíveis'
 }
 
 function conversationDate(value: string) {
@@ -42,6 +43,53 @@ function conversationDate(value: string) {
   return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   }).format(date)
+}
+
+type AnswerSource = { title: string; url: string; host: string }
+const researchSourceHosts = new Set([
+  'blog.rn.sebrae.com.br', 'inteligenciademercado.rj.sebrae.com.br',
+  'meuatendimento.sebrae.com.br', 'support.google.com', 'www.gov.br',
+])
+
+function splitAnswerSources(text: string): { body: string; sources: AnswerSource[] } {
+  const normalized = text.replace(/\r\n/g, '\n')
+  const marker = '\n\nFontes consultadas:\n'
+  const markerAt = normalized.lastIndexOf(marker)
+  if (markerAt < 0) return { body: text, sources: [] }
+
+  const lines = normalized.slice(markerAt + marker.length).trim().split('\n')
+  const sources: AnswerSource[] = []
+  for (const line of lines) {
+    const match = /^-\s+(.+?)\s+\u2014\s+(https:\/\/\S+)\s*$/.exec(line)
+    if (!match) return { body: text, sources: [] }
+    try {
+      const parsed = new URL(match[2])
+      if (parsed.protocol !== 'https:' || !researchSourceHosts.has(parsed.hostname)
+        || parsed.port || parsed.username || parsed.password) {
+        return { body: text, sources: [] }
+      }
+      sources.push({ title: match[1].trim(), url: parsed.toString(), host: parsed.hostname })
+    } catch { return { body: text, sources: [] } }
+  }
+  return sources.length
+    ? { body: normalized.slice(0, markerAt).trimEnd(), sources }
+    : { body: text, sources: [] }
+}
+
+function AssistantMessageContent({ text }: { text: string }) {
+  const { body, sources } = splitAnswerSources(text)
+  return <div className="assistant-answer">
+    <div className="assistant-answer-body">{body}</div>
+    {sources.length ? <section className="assistant-answer-sources" aria-label="Fontes consultadas pela Nayla">
+      <strong>Fontes consultadas</strong>
+      <ul>{sources.map(source => <li key={source.url}>
+        <a href={source.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
+          <span>{source.title}</span><ExternalLink size={13} aria-hidden="true" />
+        </a>
+        <small>{source.host}</small>
+      </li>)}</ul>
+    </section> : null}
+  </div>
 }
 
 function saoPauloDate() {
@@ -227,11 +275,12 @@ export function AssistantPage() {
         }
       } else {
         const response = await api.assistant(text, conversationId || undefined)
-        if (response.mode === 'ai' || response.mode === 'local') setModelStatus(current => ({
-          provider: 'ollama', model: current?.model || 'local',
-          aiAvailable: response.mode === 'ai',
-          ...(response.mode === 'local' ? { reason: current?.reason || 'request_failed' } : {}),
+        if (response.mode === 'ai') setModelStatus(current => ({
+          provider: 'ollama', model: current?.model || 'local', aiAvailable: true,
         }))
+        if (response.mode === 'local') void api.assistantStatus().then(setModelStatus).catch(() => {
+          // The answer remains useful even when model status cannot be refreshed.
+        })
         setConversationId(response.conversationId)
         setMessages(current => [...current.map(item => item.id === pendingId
           ? { ...item, id: response.userMessageId } : item),
@@ -286,7 +335,7 @@ export function AssistantPage() {
   return <div className="page assistant-page">
     {returnTo ? <Link className="assistant-mobile-return" to={returnTo}><ArrowLeft size={17} /> Voltar à tela anterior</Link> : null}
     <PageHeading eyebrow="SUA ASSISTENTE" title="Converse com a Nayla"
-      description="Pergunte sobre seu espaço, suas clientes, seus resultados e sua área de atuação." />
+      description="Pergunte sobre seu espaço, suas clientes e sua área. A Nayla combina seus dados com fontes públicas quando consulta a internet." />
     <div className="assistant-history-toolbar">
       <button type="button" className="assistant-history-toggle" aria-expanded={historyOpen}
         aria-controls="assistant-saved-conversations" onClick={() => setHistoryOpen(value => !value)}>
@@ -336,8 +385,8 @@ export function AssistantPage() {
             <p>{modelStatus === null
               ? 'Escolha uma sugestão enquanto verifico a IA local.'
               : modelStatus.aiAvailable
-                ? 'Converse livremente sobre seu negócio, os dados do app e as áreas de beleza do seu cadastro.'
-                : 'Posso consultar os dados do app e explicar suas funções. A conversa livre está sendo preparada pela Nayla.'}</p>
+                ? 'Converse sobre seu negócio e sua área. Quando consultar fontes públicas, a Nayla mostra os links na resposta.'
+                : 'Posso analisar seus dados, explicar o app e buscar fontes públicas para dicas da sua área. A conversa livre depende da IA local.'}</p>
             <div className="prompt-grid">
               {prompts.map(prompt => <button type="button" key={prompt.text} disabled={busy || historyLoading}
                 onClick={() => void send(prompt.text)}>{prompt.icon}<span>{prompt.text}</span></button>)}
@@ -346,7 +395,9 @@ export function AssistantPage() {
           : <div className="message-stack">
             {messages.map(message => <div className={`chat-message ${message.role}`} key={message.id}>
               {message.role === 'assistant' ? <span className="message-avatar"><Sparkles size={16}/></span> : null}
-              <div>{message.text}</div>
+              {message.role === 'assistant'
+                ? <AssistantMessageContent text={message.text} />
+                : <div>{message.text}</div>}
             </div>)}
             {busy && !draft ? <div className="chat-message assistant" role="status" aria-label="Nayla está preparando a resposta">
               <span className="message-avatar"><Sparkles size={16}/></span>
@@ -366,7 +417,7 @@ export function AssistantPage() {
           <button type="submit" disabled={!input.trim() || busy || historyLoading} aria-label="Enviar mensagem"><ArrowUp size={20}/></button>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <small>Enter envia · Shift+Enter quebra linha. A Nayla consulta apenas os dados do seu espaço. Alterações precisam da sua confirmação.</small>
+        <small>Enter envia · Shift+Enter quebra linha. A Nayla usa os dados do seu espaço e, quando necessário, fontes públicas. Alterações precisam da sua confirmação.</small>
       </form>
     </Panel>
     </div>

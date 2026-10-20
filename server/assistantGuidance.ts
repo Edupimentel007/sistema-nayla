@@ -25,14 +25,76 @@ const reais = (value: number) => new Intl.NumberFormat('pt-BR', {
 
 /** Advice that can be grounded in this owner's analytics without waiting for a model. */
 export function isBusinessAdviceQuestion(query: string): boolean {
-  const asksForAction = /\b(como|dicas?|sugestoes?|ideias?|estrategias?|orientacoes?|planos?|recomendacoes?|o que fazer|por onde comecar)\b/.test(query);
-  const businessGoal = /melhor|crescer|aument|elevar|atrair|captar|conquistar|fideliz|reter|retorno|ticket|precific|preco|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas|negocio/.test(query);
-  const actionRequest = /\b(remarcar|reagendar|desmarcar|cancelar)\b/.test(query);
+  const text = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const asksForAction = /\b(como|dicas?|sugestoes?|ideias?|estrategias?|orientacoes?|planos?|recomendacoes?|o que fazer|por onde comecar|me ajude|quero|preciso|poderia|pesquis[ae]?|busqu[ea]?|fontes?)\b/.test(text)
+    || /tendenc|novidad|\bem alta\b/.test(text);
+  const businessGoal = /melhor|crescer|aument|elevar|atrair|captar|conquistar|fideliz|reter|retorno|ticket|precific|preco|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas|negocio|destac|diferenc|posicion|concorr|referencia|reconhecid|clientela|tendenc|novidad|\bem alta\b|\bmeu ramo\b|\bmeu nicho\b/.test(text);
+  const actionRequest = /\b(remarcar|reagendar|desmarcar|cancelar)\b/.test(text);
   return asksForAction && businessGoal && !actionRequest;
 }
 
+const differentiationByArea: Record<string, { showcase: string; experience: string }> = {
+  unhas: {
+    showcase: 'Monte um portfólio por estilo e ocasião; se oferecer alongamento, diferencie aplicação, manutenção e remoção com tempo e preço próprios.',
+    experience: 'Anote, com permissão, formato e cores preferidos; na saída, sugira a próxima reserva conforme o serviço realizado e a vontade da cliente.',
+  },
+  sobrancelhas: {
+    showcase: 'Mostre exemplos autorizados de acabamentos naturais e marcados; explique a diferença entre design simples, coloração e henna somente se fizer esses serviços.',
+    experience: 'Alinhe formato esperado antes de começar e registre a preferência para que o próximo atendimento seja consistente.',
+  },
+  cilios: {
+    showcase: 'Organize fotos autorizadas por efeito e modalidade; se fizer extensão, separe aplicação, manutenção e remoção no menu.',
+    experience: 'Confirme o efeito desejado, explique o que está incluído e deixe claro o tempo de cada modalidade antes da reserva.',
+  },
+  cabelos: {
+    showcase: 'Separe no portfólio corte, cor e penteado que realmente realiza; mostre escopo e critérios de orçamento para serviços longos.',
+    experience: 'Na consulta inicial, alinhe referências, tempo e possíveis etapas extras para reduzir surpresas no dia.',
+  },
+  terapia_capilar: {
+    showcase: 'Explique a experiência cosmética de cada serviço com etapas e produtos, sem prometer diagnóstico ou tratamento clínico.',
+    experience: 'Registre preferências de atendimento e apresente uma opção de retorno somente quando fizer sentido para a cliente.',
+  },
+  maquiagem: {
+    showcase: 'Organize trabalhos autorizados por ocasião, como evento, noiva ou maquiagem social, conforme o que você realmente oferece.',
+    experience: 'Confirme horário em que a cliente precisa estar pronta, referência, teste e deslocamento antes de fechar o valor.',
+  },
+  depilacao: {
+    showcase: 'Mostre um menu simples por área e método que você atende; informe duração e valor total de combinações possíveis.',
+    experience: 'Facilite uma reserva discreta, confirme preferências de privacidade e comunique preparo conforme os produtos utilizados.',
+  },
+  estetica_facial: {
+    showcase: 'Descreva o objetivo estético, etapas e duração de cada serviço sem prometer resultado clínico ou universal.',
+    experience: 'Explique o que está incluído e peça retorno sobre a experiência; encaminhe questões clínicas a profissional habilitado.',
+  },
+  estetica_corporal: {
+    showcase: 'Diferencie serviços por experiência, tempo e o que cada sessão inclui; evite promessas de medidas ou resultados médicos.',
+    experience: 'Apresente condições de sessões ou pacotes com preço transparente e respeite privacidade e consentimento.',
+  },
+  massagens: {
+    showcase: 'Separe modalidades de bem-estar por duração, ambiente e preço para a cliente escolher com segurança.',
+    experience: 'Confirme conforto e preferências antes da sessão e reserve tempo de preparo entre clientes.',
+  },
+  micropigmentacao: {
+    showcase: 'Mostre portfólio autorizado por modalidade e informe etapas, avaliação, valor de retoque e escopo.',
+    experience: 'Alinhe expectativa e consentimento antes da reserva e siga os requisitos da sua atividade.',
+  },
+  bronzeamento: {
+    showcase: 'Apresente o método cosmético, preparo e duração, com exemplos autorizados e sem prometer proteção solar.',
+    experience: 'Pergunte a data do evento para orientar o agendamento conforme as instruções do produto usado.',
+  },
+  podologia: {
+    showcase: 'Descreva o escopo dos cuidados que oferece e o tempo de cada modalidade, sem apresentar o serviço como diagnóstico.',
+    experience: 'Mantenha atendimento reservado e requisitos de biossegurança; encaminhe sinais clínicos a profissional habilitado.',
+  },
+  outros: {
+    showcase: 'Escolha um serviço que você realmente faz e explique claramente para quem é, o que inclui, duração e preço.',
+    experience: 'Peça feedback sobre atendimento e facilidade da reserva; ajuste a descrição quando surgirem dúvidas repetidas.',
+  },
+};
+
 export function personalizedBusinessAdvice(query: string, business: AssistantBusiness,
   data: Analytics): string {
+  const normalizedQuery = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const { period, overview, clients, appointments, services } = data;
   const window = `${period.from.split('-').reverse().join('/')} a ${period.to.split('-').reverse().join('/')}`;
   const intro = `Para ${business.name}, de ${window} (${period.days} dias): ${overview.bookings} reserva(s), ${overview.completed.current} atendimento(s) concluído(s), ${reais(overview.income.current)} em entradas registradas e ${overview.completed.current ? reais(overview.ticketAverage.current) : 'ticket médio ainda sem base'}. Entradas do Financeiro e valores dos atendimentos são medidas diferentes.`;
@@ -51,6 +113,42 @@ export function personalizedBusinessAdvice(query: string, business: AssistantBus
   const areaAdvice = `${outsideArea}${guide.length
     ? `Na sua área (${guide.map(item => item.label).join(' e ')}): ${guide.map(item => item.commercialAdvice).join(' ')}`
     : 'Descreva claramente cada serviço ativo, seu tempo e preço; registre preferências das clientes apenas quando forem úteis ao atendimento.'}`;
+  const focusedArea = guide[0]?.area || activeArea || 'outros';
+  const focusedLabel = guide[0]?.label || labels[focusedArea] || 'seu ramo';
+  const examples = differentiationByArea[focusedArea] || differentiationByArea.outros;
+  const offerings = business.services.filter(item => item.category === focusedArea).slice(0, 3);
+  const areaTopService = [...services].filter(item => item.category === focusedArea)
+    .sort((a, b) => b.bookings - a.bookings)[0];
+  if (/tendenc|novidad|\bem alta\b/.test(normalizedQuery)) {
+    return `Sobre novidades em ${focusedLabel}: sem uma fonte externa atual nesta resposta, não posso afirmar o que está em alta no mercado. ${outsideArea}\n\n`
+      + `1. Observe a procura real: nos ${period.days} dias de ${window}, ${areaTopService?.bookings ? `${areaTopService.name} teve ${areaTopService.bookings} reserva(s)` : 'ainda não há reservas suficientes dessa área para apontar uma preferência das suas clientes'}.\n`
+      + `2. Escolha uma ideia pequena para testar, respeitando sua formação e os serviços que realmente oferece. ${examples.showcase}\n`
+      + `3. Apresente escopo, duração e preço antes de divulgar a novidade; compare reservas, cancelamentos e retorno no próximo período semelhante. Procura local não comprova que uma técnica seja tendência geral.`;
+  }
+  if (/destac|diferenc|posicion|concorr|referencia|reconhecid/.test(normalizedQuery)) {
+    if (/\bmais\s+(?:algumas?\s+)?(?:dicas?|ideias?|sugestoes?)\b|\bo que mais\b|\balgo mais\b/.test(normalizedQuery)) {
+      const serviceName = offerings[0]?.name || 'um serviço que você oferece';
+      return `Mais três ideias para ${focusedLabel}, além da vitrine e da experiência que comentei:\n\n`
+        + `1. Responda uma dúvida recorrente sobre ${serviceName} em uma publicação curta: mostre o que inclui, o tempo e o preço cadastrado, com convite para reservar pelo seu link.\n`
+        + `2. Faça uma parceria de indicação com uma profissional complementar da sua região. Combine uma apresentação clara dos serviços, sem compartilhar dados ou contatos das clientes.\n`
+        + `3. Ajuste a execução: ${guide[0]?.workflow || 'confirme expectativa e duração antes da reserva e deixe uma margem realista entre atendimentos.'}\n\n`
+        + `Em Análises, acompanhe reservas e atendimentos concluídos de ${serviceName} nos próximos ${period.days} dias; mude uma ação por vez para entender o que ajuda.`;
+    }
+    const catalogEvidence = offerings.length
+      ? `Entre os seus serviços estão ${offerings.map(item => `${item.name} (${item.duration_minutes} min, ${money(item.price_cents)})`).join(', ')}. Escolha um deles para começar a campanha.`
+      : `Cadastre primeiro uma modalidade dessa área que você realmente oferece, com preço e duração claros.`;
+    const serviceEvidence = areaTopService?.bookings
+      ? `Seu serviço mais reservado nessa área foi ${areaTopService.name}: ${areaTopService.bookings} reserva(s), ${areaTopService.completed} concluída(s).`
+      : 'Ainda não há reservas suficientes para escolher um serviço pelo histórico; comece pelo que você domina e consegue atender bem.';
+    const returnEvidence = clients.retention.eligible
+      ? `Das ${clients.retention.eligible} clientes do período anterior, ${clients.retention.returned} voltaram (${clients.retention.rate}%).`
+      : 'Ainda não há base para medir retorno de clientes.';
+    return `Para se destacar em ${focusedLabel}, transforme a qualidade do seu atendimento em uma oferta fácil de entender e reservar. ${outsideArea}\n\n`
+      + `1. Escolha o diferencial: ${examples.showcase} ${catalogEvidence}\n`
+      + `2. Mostre a experiência: Publique fotos ou depoimentos reais apenas com autorização. ${examples.experience}\n`
+      + `3. Facilite a decisão: Deixe seu link /agendar/${business.slug} visível na bio e nas mensagens, com nome, duração e preço dos serviços ativos. Convide a cliente satisfeita a indicar seu trabalho sem oferecer promessas de resultado.\n\n`
+      + `Como medir: nos ${period.days} dias de ${window}, houve ${overview.bookings} reserva(s) e ${overview.completed.current} atendimento(s) concluído(s). ${serviceEvidence} ${returnEvidence} Teste uma melhoria por vez durante o próximo período semelhante e acompanhe reservas do serviço escolhido e retorno em Análises; esses registros não provam sozinhos a causa de uma mudança.`;
+  }
   const serviceEvidence = topService?.bookings
     ? `${topService.name} teve ${topService.bookings} reserva(s) e ${topService.completed} atendimento(s) concluído(s) neste período.`
     : 'Ainda não há reservas suficientes para identificar o serviço mais procurado.';
@@ -71,11 +169,11 @@ export function personalizedBusinessAdvice(query: string, business: AssistantBus
     : 'Não há despesas registradas neste período. Lance materiais, taxas e custos do espaço para não avaliar o negócio apenas pelas entradas.';
   const acquisition = `${serviceEvidence} Revise nome, duração e preço dos serviços ativos e divulgue seu link /agendar/${business.slug}. Teste horários adicionais para o serviço mais procurado somente se houver capacidade na agenda.`;
 
-  const focus = /ticket|precific|preco|cobr|valor por atendimento/.test(query)
+  const focus = /ticket|precific|preco|cobr|valor por atendimento/.test(normalizedQuery)
     ? [ticket, serviceEvidence, areaAdvice]
-    : /retorn|fideliz|reter/.test(query)
+    : /retorn|fideliz|reter/.test(normalizedQuery)
       ? [followup, areaAdvice, appointments.statuses.cancelled || appointments.statuses.noShow ? loss : ticket]
-      : /atrair|captar|conquistar|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas/.test(query)
+      : /atrair|captar|conquistar|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas/.test(normalizedQuery)
         ? [acquisition, areaAdvice, followup]
         : [finance, followup, areaAdvice,
           appointments.statuses.cancelled || appointments.statuses.noShow ? loss

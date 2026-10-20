@@ -283,6 +283,60 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
       assert.match(second.body.answer, /Cílios/);
       assert.doesNotMatch(second.body.answer, /137,15|501,23|Unhas/);
 
+      const standoutNails = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas de como posso me destacar no meu ramo',
+      }) }, nails);
+      const standoutLashes = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas de como posso me destacar no meu ramo',
+      }) }, lashes);
+      assert.equal(standoutNails.status, 200);
+      assert.equal(standoutLashes.status, 200);
+      assert.match(standoutNails.body.answer, /destacar em Unhas/i);
+      assert.match(standoutNails.body.answer, /portfólio por estilo|aplicação, manutenção e remoção/i);
+      assert.match(standoutLashes.body.answer, /destacar em Cílios/i);
+      assert.match(standoutLashes.body.answer, /fotos autorizadas por efeito|aplicação, manutenção e remoção/i);
+      assert.notEqual(standoutNails.body.answer, standoutLashes.body.answer);
+      assert.doesNotMatch(standoutNails.body.answer, /Não consegui concluir uma resposta confiável/i);
+
+      const followup = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Como posso me diferenciar da concorrência?',
+        conversationId: standoutNails.body.conversationId,
+      }) }, nails);
+      assert.equal(followup.status, 200);
+      assert.match(followup.body.answer, /destacar em Unhas/i);
+
+      const moreIdeas = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'e mais dicas?', conversationId: followup.body.conversationId,
+      }) }, nails);
+      assert.equal(moreIdeas.status, 200);
+      assert.match(moreIdeas.body.answer, /Mais três ideias para Unhas/i);
+      assert.notEqual(moreIdeas.body.answer, followup.body.answer);
+
+      const recentStandout = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas para me destacar e conseguir mais clientes nos últimos 7 dias',
+      }) }, nails);
+      assert.equal(recentStandout.status, 200);
+      assert.match(recentStandout.body.answer, /7 dias/);
+      assert.match(recentStandout.body.answer, /destacar em Unhas/i);
+      assert.match(recentStandout.body.answer, /reserva/i);
+      assert.doesNotMatch(recentStandout.body.answer, /501,23|789,02/);
+
+      const acquisition = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Ideias para atrair clientes para meus serviços de unhas',
+      }) }, nails);
+      assert.equal(acquisition.status, 200);
+      assert.match(acquisition.body.answer, /Unhas|unhas/i);
+      assert.match(acquisition.body.answer, /agendar\/estudio-ana-advice-nails/);
+      assert.notEqual(acquisition.body.answer, standoutNails.body.answer);
+
+      const trends = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Quais tendências e novidades existem no meu ramo de unhas?',
+      }) }, nails);
+      assert.equal(trends.status, 200);
+      assert.match(trends.body.answer, /novidades em Unhas/i);
+      assert.match(trends.body.answer, /sem uma fonte externa atual|fonte externa/i);
+      assert.doesNotMatch(trends.body.answer, /pesquisei|encontrei na internet/i);
+
       const thirdArea = await registerOwner('advice-third-area',
         ['unhas', 'cilios', 'maquiagem', 'massagens']);
       const targeted = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
@@ -292,6 +346,13 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
       assert.equal(targeted.body.mode, 'instant');
       assert.match(targeted.body.answer, /Na sua área \(Maquiagem\)/);
       assert.doesNotMatch(targeted.body.answer, /Na sua área \(Unhas|Na sua área \(Cílios/);
+
+      const targetedStandout = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Como me diferenciar na maquiagem?',
+      }) }, thirdArea);
+      assert.equal(targetedStandout.status, 200);
+      assert.match(targetedStandout.body.answer, /destacar em Maquiagem/i);
+      assert.doesNotMatch(targetedStandout.body.answer, /destacar em Unhas|destacar em Cílios/i);
 
       const financialAdvice = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
         message: 'Dicas para melhorar meu faturamento nos últimos 7 dias',

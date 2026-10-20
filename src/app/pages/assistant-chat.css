@@ -74,6 +74,17 @@
 .assistant-page .chat-form > small { line-height: 1.5; }
 .assistant-page .chat-message > div { overflow-wrap: anywhere; font-size: 13px; }
 .assistant-page .chat-message.assistant > div { color: var(--ink); }
+.assistant-answer-body { white-space: pre-wrap; }
+.assistant-answer-sources { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); white-space: normal; }
+.assistant-answer-sources > strong { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.assistant-answer-sources ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.assistant-answer-sources li { min-width: 0; }
+.assistant-answer-sources a { display: inline-flex; align-items: flex-start; gap: 5px; max-width: 100%; color: var(--ink); font-size: 11px; font-weight: 700; line-height: 1.45; text-decoration-color: var(--pink); text-underline-offset: 3px; }
+.assistant-answer-sources a:hover { color: var(--pink); }
+.assistant-answer-sources a:focus-visible { outline: 2px solid var(--pink); outline-offset: 3px; border-radius: 2px; }
+.assistant-answer-sources a span { min-width: 0; overflow-wrap: anywhere; }
+.assistant-answer-sources a svg { flex: none; margin-top: 1px; }
+.assistant-answer-sources small { display: block; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .assistant-page .prompt-grid button:disabled { opacity: .5; cursor: wait; }
 
 @media (max-width: 650px) {
