@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, CalendarDays, CircleDollarSign, Heart, RotateCcw, Sparkles } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { ArrowLeft, ArrowUp, CalendarDays, CircleDollarSign, Heart, RotateCcw, Sparkles } from 'lucide-react'
 import { api, type Appointment, type AssistantStatus, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
 import { useAuth } from '../contexts'
 import { dateTime, PageHeading, Panel } from '../shared'
@@ -66,6 +67,10 @@ function notificationMessage(status: NotificationStatus) {
 
 export function AssistantPage() {
   const { session } = useAuth()
+  const location = useLocation()
+  const launcherSource = (location.state as { from?: unknown } | null)?.from
+  const returnTo = typeof launcherSource === 'string' && /^\/app(?:\/|\?|$)/.test(launcherSource)
+    && !launcherSource.startsWith('/app/assistente') ? launcherSource : null
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [draft, setDraft] = useState<ActionDraft | null>(null)
@@ -166,6 +171,7 @@ export function AssistantPage() {
   }
 
   return <div className="page assistant-page">
+    {returnTo ? <Link className="assistant-mobile-return" to={returnTo}><ArrowLeft size={17} /> Voltar à tela anterior</Link> : null}
     <PageHeading eyebrow="SUA ASSISTENTE" title="Converse com a Nayla"
       description="Pergunte sobre seu espaço, suas clientes, seus resultados e sua área de atuação." />
     <Panel className="chat-panel">

@@ -51,11 +51,13 @@ function RequireAuth() {
 function AdminShell() {
   const { session, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+  const location = useLocation()
   const navigate = useNavigate()
   if (!session) return null
+  const showAssistantLauncher = location.pathname !== '/app/assistente'
   const bookingUrl = `/agendar/${session.business.slug}`
   const signOut = async () => { try { await logout(); navigate('/entrar') } catch { /* the page remains usable if logout fails */ } }
-  return <div className="app-shell">
+  return <div className={`app-shell ${showAssistantLauncher ? 'has-mobile-assistant-launcher' : ''}`}>
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-top"><Link to="/app" onClick={() => setMenuOpen(false)} aria-label="Início Nayla"><Logo /></Link><button className="icon-button close-mobile" onClick={() => setMenuOpen(false)} aria-label="Fechar menu"><X size={20} /></button></div>
       <div className="workspace-pill"><BusinessLogo name={session.business.name} logoUrl={session.business.logoUrl} className="business-logo-sidebar" /><span><strong>{session.business.name}</strong><small>Meu espaço</small></span></div>
@@ -64,6 +66,12 @@ function AdminShell() {
       <div className="sidebar-bottom"><div className="sidebar-promo"><span className="promo-icon"><Heart size={18} fill="currentColor" /></span><strong>Seu espaço de agendamentos</strong><p>Compartilhe seu link e receba suas clientes com praticidade.</p><Link to={bookingUrl} target={Capacitor.isNativePlatform() ? undefined : '_blank'}>Ver minha página <ArrowRight size={14} /></Link></div><button className="side-link signout" onClick={signOut}><LogOut size={19} /> Sair da conta</button></div>
     </aside>
     {menuOpen ? <button className="sidebar-scrim" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
+    {showAssistantLauncher ? <Link className="mobile-assistant-launcher" to="/app/assistente"
+      state={{ from: `${location.pathname}${location.search}` }} onClick={() => setMenuOpen(false)}
+      aria-label="Abrir conversa com a Nayla IA">
+      <span className="mobile-assistant-mark" aria-hidden="true"><Sparkles size={21} strokeWidth={1.8} /></span>
+      <span className="mobile-assistant-copy"><strong>Nayla IA</strong><small>Perguntar agora</small></span>
+    </Link> : null}
     <div className="app-main"><header className="topbar"><div className="topbar-left"><button className="icon-button menu-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={22} /></button><span className="topbar-greeting">Olá, <strong>{session.user.name.split(' ')[0]}</strong></span></div><div className="topbar-right"><span className="today-tag"><CalendarDays size={16} /> {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date())}</span><OwnerInboxButton /><ThemeButton /><Link to="/app/configuracoes" className="header-avatar" title="Configurações" aria-label="Abrir configurações do perfil"><BusinessLogo name={session.user.name} logoUrl={session.business.logoUrl} className="business-logo-profile" /></Link></div></header><main className="content"><Suspense fallback={<Loading label="Abrindo página..." />}><Outlet /></Suspense></main></div>
   </div>
 }
