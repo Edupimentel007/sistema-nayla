@@ -60,6 +60,12 @@ export type Subscription = {
   accessGranted: boolean
   checkoutUrl?: string
   currentPeriodEnd?: string
+  billingMethod?: BillingMethod | null
+  recurringStatus?: 'initiating' | 'pending' | 'authorized' | 'paused' | 'canceled' | 'completed' | null
+  canCancelRecurring?: boolean
+  autoRenews?: boolean
+  annualInstallmentsPaid?: number | null
+  verificationDelayed?: boolean
 }
 export type BillingCheckout = {
   status: 'pending'
@@ -255,6 +261,9 @@ export const api = {
     }),
   me: () => request<Session>('/api/auth/me'),
   subscription: () => request<Subscription>('/api/billing/subscription'),
+  cancelSubscription: () => request<Subscription>('/api/billing/subscription/cancel', {
+    method: 'POST', body: json({}),
+  }),
   startTrial: () => request<Subscription>('/api/billing/trial', { method: 'POST', body: JSON.stringify({}) }),
   completeOnboarding: () => request<{ onboardingCompleted: boolean }>('/api/billing/onboarding', {
     method: 'PATCH', body: json({ completed: true }),

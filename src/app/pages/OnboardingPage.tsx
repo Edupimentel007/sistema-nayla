@@ -15,9 +15,9 @@ const features = [
   { icon: Sparkles, title: 'Nayla, sua assistente', description: 'Consulte sua agenda e seus resultados. Configure avisos e lembretes de atendimento.' },
 ]
 
-const plans: Array<{ id: BillingPlan; title: string; price: string; unit: string; detail: string; cardDetail: string }> = [
-  { id: 'monthly', title: 'Mensal', price: 'R$ 49,90', unit: '/ mês', detail: 'Pagamento avulso. Você renova quando desejar.', cardDetail: 'Cartão ou Pix: R$ 49,90 por período.' },
-  { id: 'annual', title: 'Anual', price: 'R$ 420', unit: '/ ano', detail: 'Equivale a R$ 35 por mês. Pix à vista.', cardDetail: 'Cartão: 12x de R$ 35 sem juros após habilitar essa condição no Mercado Pago.' },
+const plans: Array<{ id: BillingPlan; title: string }> = [
+  { id: 'monthly', title: 'Mensal' },
+  { id: 'annual', title: 'Anual' },
 ]
 
 function errorText(error: unknown) {
@@ -91,6 +91,8 @@ export function OnboardingPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [agreedRecurring, setAgreedRecurring] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
 
   const refresh = async () => {
     setError('')
@@ -158,8 +160,14 @@ export function OnboardingPage() {
     try { await navigator.clipboard.writeText(checkout.pix.payload); setCopied(true) }
     catch { setError('Não foi possível copiar automaticamente. Selecione o código abaixo para copiar.') }
   }
-  const selectPlan = (next: BillingPlan) => { setPlan(next); setCheckout(null); setError('') }
-  const selectMethod = (next: BillingMethod) => { setMethod(next); setCheckout(null); setError('') }
+  const cancelSubscription = async () => {
+    setBusy(true); setError('')
+    try { setSubscription(await api.cancelSubscription()); setConfirmCancel(false) }
+    catch (reason) { setError(errorText(reason)) }
+    finally { setBusy(false) }
+  }
+  const selectPlan = (next: BillingPlan) => { setPlan(next); setCheckout(null); setAgreedRecurring(false); setError('') }
+  const selectMethod = (next: BillingMethod) => { setMethod(next); setCheckout(null); setAgreedRecurring(false); setError('') }
   const image = checkout?.pix ? qrImage(checkout.pix.encodedImage) : null
   const trialActive = Boolean(subscription?.trialEndsAt &&
     Date.parse(subscription.trialEndsAt) > Date.now() && subscription.status !== 'active')
@@ -196,33 +204,39 @@ export function OnboardingPage() {
           {subscription?.status === 'active' ? <p className="onboarding-status"><Check size={17} /> Seu acesso está ativo{dateLabel(subscription.currentPeriodEnd) ? ` até ${dateLabel(subscription.currentPeriodEnd)}` : ''}.</p> :
             subscription?.trialEndsAt && subscription.accessGranted ? <p className="onboarding-status">Seu teste gratuito vai até {dateLabel(subscription.trialEndsAt)}.</p> :
               <p className="onboarding-status">Seu acesso ainda não está ativo. Atualize esta tela após a ativação da sua conta.</p>}
+          {subscription?.canCancelRecurring ? <div className="onboarding-exit">{confirmCancel ? <><p>Ao cancelar, não haverá novas cobranças. O acesso continua até o fim do período já pago.</p><button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void cancelSubscription()}>Confirmar cancelamento</button><button className="subtle-link" type="button" onClick={() => setConfirmCancel(false)}>Manter assinatura</button></> : <button className="subtle-link" type="button" onClick={() => setConfirmCancel(true)}>Cancelar próximas cobranças</button>}</div> : null}
           <div className="onboarding-exit"><button className="btn btn-primary" type="button" disabled={busy || !subscription?.accessGranted} onClick={() => void finish()}>Conhecer meu painel <ArrowRight size={17} /></button>
             <button className="subtle-link" type="button" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15} /> Atualizar acesso</button></div>
           {error && !subscription?.trialAvailable && !trialActive ? <p className="form-error" role="alert">{error}</p> : null}
         </> : <>
           {trialActive ? <p className="onboarding-status"><Check size={17} /> Seu mês gratuito vai até {dateLabel(subscription?.trialEndsAt || undefined)}. A Nayla não fará uma cobrança automática.</p> : null}
-          {subscription?.status === 'active' ? <p className="onboarding-status"><Check size={17} /> Seu plano {subscription.plan === 'annual' ? 'anual' : 'mensal'} está ativo{dateLabel(subscription.currentPeriodEnd) ? ` até ${dateLabel(subscription.currentPeriodEnd)}` : ''}.</p> : null}
+          {subscription?.status === 'active' ? <p className="onboarding-status"><Check size={17} /> Seu plano {subscription.plan === 'annual' ? 'anual' : 'mensal'} está ativo{dateLabel(subscription.currentPeriodEnd) ? ` até ${dateLabel(subscription.currentPeriodEnd)}` : ''}. {subscription.billingMethod === 'card' ? subscription.recurringStatus === 'canceled' ? 'Próximas cobranças canceladas.' : subscription.plan === 'annual' ? `${subscription.annualInstallmentsPaid || 0} de 12 mensalidades de R$ 35 pagas.` : 'Renova mensalmente até o cancelamento.' : 'Pagamento avulso por Pix, sem renovação automática.'}</p> : null}
           {subscription?.status === 'pending' ? <p className="onboarding-status">Seu pagamento está pendente de confirmação. Você pode verificar o status abaixo.</p> : null}
+          {subscription?.verificationDelayed ? <p className="onboarding-provider-note" role="status">Não foi possível consultar o Mercado Pago agora. Tente verificar novamente em instantes.</p> : null}
           <div className="onboarding-plans" role="group" aria-label="Planos Nayla">{plans.map(item => <button key={item.id} type="button" className={`onboarding-plan ${plan === item.id ? 'selected' : ''}`} aria-pressed={plan === item.id} onClick={() => selectPlan(item.id)}>
             <span className="onboarding-plan-head"><strong>{item.title}</strong><span aria-hidden="true" className="onboarding-radio">{plan === item.id ? <Check size={13} /> : null}</span></span>
-            <span className="onboarding-price"><strong>{item.price}</strong><small>{item.unit}</small></span>
-            <span className="onboarding-plan-detail">{item.detail}</span><span className="onboarding-plan-card">{item.cardDetail}</span>
+            <span className="onboarding-price"><strong>{item.id === 'monthly' ? 'R$ 49,90' : method === 'card' ? 'R$ 35' : 'R$ 420'}</strong><small>{method === 'card' ? '/ mês' : '/ pagamento'}</small></span>
+            <span className="onboarding-plan-detail">{item.id === 'annual' ? method === 'card' ? 'Até 12 cobranças mensais de R$ 35; R$ 420 se completar as 12.' : 'Pix único de R$ 420; 12 meses de acesso.' : method === 'card' ? 'Cobrança automática mensal até cancelar.' : 'Pix único de R$ 49,90; um mês de acesso.'}</span>
           </button>)}</div>
           {(subscription?.trialAvailable || trialActive) ? <p className="onboarding-plan-timing">Esses valores só serão cobrados se você escolher um plano. O teste termina sem renovação automática.</p> : null}
           {subscription?.status !== 'active' && !subscription?.trialAvailable && !trialActive ? <div className="onboarding-payment">
             <div><h3>Como deseja pagar?</h3><p>O pagamento acontece em uma etapa segura. A Nayla não solicita dados do seu cartão aqui.</p></div>
             {!subscription?.providerConfigured ? <p className="onboarding-provider-note" role="status">Os pagamentos reais serão habilitados quando a integração de cobrança da Nayla estiver conectada pelo administrador.</p> : null}
             <div className="onboarding-methods" role="group" aria-label="Forma de pagamento">
-              <button type="button" className={method === 'card' ? 'selected' : ''} aria-pressed={method === 'card'} onClick={() => selectMethod('card')}><CreditCard size={19} /> Checkout Mercado Pago (cartão)</button>
-              <button type="button" className={method === 'pix' ? 'selected' : ''} aria-pressed={method === 'pix'} onClick={() => selectMethod('pix')}><QrCode size={19} /> Pix</button>
+              <button type="button" className={method === 'card' ? 'selected' : ''} aria-pressed={method === 'card'} onClick={() => selectMethod('card')}><CreditCard size={19} /> Assinatura automática no cartão</button>
+              <button type="button" className={method === 'pix' ? 'selected' : ''} aria-pressed={method === 'pix'} onClick={() => selectMethod('pix')}><QrCode size={19} /> Pix avulso, sem renovação</button>
             </div>
+            {method === 'card' ? <label className="onboarding-tax-id"><input type="checkbox" checked={agreedRecurring} onChange={event => setAgreedRecurring(event.target.checked)} />
+              <span>{plan === 'annual' ? 'Entendi: após o teste grátis, autorizarei até 12 cobranças automáticas mensais de R$ 35. Pagarei R$ 420 se completar as 12. Posso cancelar as próximas cobranças; o acesso termina ao fim do período pago.' : 'Entendi: após o teste grátis, autorizarei cobranças automáticas de R$ 49,90 todo mês até cancelar.'} A primeira cobrança ocorre ao concluir a assinatura no Mercado Pago. O acesso começa quando o pagamento for aprovado.</span>
+            </label> : <p className="onboarding-plan-timing">Pix é uma compra única: {plan === 'annual' ? 'R$ 420 por um ano' : 'R$ 49,90 por um mês'}. Não haverá renovação automática.</p>}
             {method === 'pix' ? <label className="onboarding-tax-id">CPF ou CNPJ do pagador
               <input type="text" inputMode="numeric" autoComplete="off" value={cpfCnpj} maxLength={18}
                 onChange={event => setCpfCnpj(event.target.value.replace(/[^\d.\-/]/g, ''))} placeholder="Digite apenas os números" />
               <small>Usado somente para criar a cobrança Pix; não fica salvo na Nayla.</small>
             </label> : null}
-            <button className="btn btn-primary onboarding-pay-button" type="button" disabled={busy || !subscription?.providerConfigured} onClick={() => void beginCheckout()}>{busy ? 'Preparando pagamento...' : method === 'card' ? 'Ir para pagamento seguro' : 'Gerar Pix'} <ArrowRight size={17} /></button>
+            <button className="btn btn-primary onboarding-pay-button" type="button" disabled={busy || !subscription?.providerConfigured || (method === 'card' && !agreedRecurring)} onClick={() => void beginCheckout()}>{busy ? 'Preparando pagamento...' : method === 'card' ? 'Autorizar assinatura no Mercado Pago' : 'Gerar Pix'} <ArrowRight size={17} /></button>
             <p className="onboarding-secure"><LockKeyhole size={15} /> O cartão é preenchido no checkout do provedor de pagamentos. A ativação ocorre somente após a confirmação do pagamento.</p>
+            {subscription?.canCancelRecurring ? <div className="onboarding-exit">{confirmCancel ? <><p>Ao cancelar, não haverá novas cobranças. O acesso continua até o fim do período já pago.</p><button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void cancelSubscription()}>Confirmar cancelamento</button><button className="subtle-link" type="button" onClick={() => setConfirmCancel(false)}>Manter assinatura</button></> : <button className="subtle-link" type="button" onClick={() => setConfirmCancel(true)}>Cancelar próximas cobranças</button>}</div> : null}
           </div> : null}
           {checkout?.pix ? <div className="onboarding-pix" aria-live="polite"><div><span className="eyebrow">PIX GERADO</span><h3>Escaneie o QR Code ou copie o código</h3><p>Confira o valor e o destinatário na página do seu banco antes de confirmar.</p>{dateLabel(checkout.pix.expiresAt) ? <small>Válido até {new Date(checkout.pix.expiresAt!).toLocaleString('pt-BR')}</small> : null}</div>
             {image ? <img src={image} alt="QR Code dinâmico para pagamento Pix" /> : null}
