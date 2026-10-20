@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, ArrowUp, CalendarDays, CircleDollarSign, Heart, RotateCcw, Sparkles } from 'lucide-react'
-import { api, type Appointment, type AssistantStatus, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
+import { ArrowLeft, ArrowUp, CalendarDays, CircleDollarSign, Heart, History, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { api, type Appointment, type AssistantConversation, type AssistantStatus, type NotificationStatus, type OwnerActionExpectation } from '../../lib/api'
 import { useAuth } from '../contexts'
 import { dateTime, PageHeading, Panel } from '../shared'
 import './admin-updates.css'
@@ -35,6 +35,13 @@ function modelStatusText(status: AssistantStatus | null) {
   if (status.reason === 'server_offline') return 'Conversa livre temporariamente indisponível'
   if (status.reason === 'request_failed') return 'Conversa livre não respondeu · consultas disponíveis'
   return 'Chat livre indisponível · consultas do app disponíveis'
+}
+
+function conversationDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  }).format(date)
 }
 
 function saoPauloDate() {
@@ -72,12 +79,41 @@ export function AssistantPage() {
   const returnTo = typeof launcherSource === 'string' && /^\/app(?:\/|\?|$)/.test(launcherSource)
     && !launcherSource.startsWith('/app/assistente') ? launcherSource : null
   const [messages, setMessages] = useState<Message[]>([])
+  const [conversations, setConversations] = useState<AssistantConversation[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [moreConversations, setMoreConversations] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [draft, setDraft] = useState<ActionDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [modelStatus, setModelStatus] = useState<AssistantStatus | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const { conversations: saved } = await api.assistantConversations()
+        if (!active) return
+        setConversations(saved)
+        setMoreConversations(saved.length === 100)
+        if (saved.length) {
+          const detail = await api.assistantConversation(saved[0].id)
+          if (!active) return
+          setConversationId(detail.conversation.id)
+          setMessages(detail.messages)
+        }
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : 'Não consegui carregar as conversas salvas.')
+      } finally {
+        if (active) setHistoryLoading(false)
+      }
+    })()
+    return () => { active = false }
+  }, [])
   useEffect(() => {
     let active = true
     void api.assistantStatus().then(status => {
@@ -92,16 +128,85 @@ export function AssistantPage() {
     endRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' })
   }, [messages, busy, draft])
 
-  const addAssistant = (text: string) => setMessages(current => [...current, { id: crypto.randomUUID(), role: 'assistant', text }])
+  const refreshConversations = async () => {
+    try {
+      const { conversations: saved } = await api.assistantConversations()
+      setConversations(saved)
+      setMoreConversations(saved.length === 100)
+    } catch { /* the current conversation remains usable if the list fails to refresh */ }
+  }
+
+  const loadMoreConversations = async () => {
+    if (busy || historyLoading || loadingMore || !moreConversations) return
+    setLoadingMore(true)
+    try {
+      const { conversations: older } = await api.assistantConversations(conversations.length)
+      setConversations(current => [...current, ...older.filter(item =>
+        !current.some(existing => existing.id === item.id))])
+      setMoreConversations(older.length === 100)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Não consegui carregar mais conversas.')
+    } finally { setLoadingMore(false) }
+  }
+
+  const startNewConversation = () => {
+    if (busy || historyLoading || deletingId) return
+    setConversationId(null)
+    setMessages([])
+    setDraft(null)
+    setError('')
+    setInput('')
+    setHistoryOpen(false)
+  }
+
+  const openConversation = async (id: string) => {
+    if (busy || historyLoading || deletingId) return
+    if (id === conversationId) { setHistoryOpen(false); return }
+    setHistoryLoading(true)
+    try {
+      const detail = await api.assistantConversation(id)
+      setConversationId(detail.conversation.id)
+      setMessages(detail.messages)
+      setDraft(null)
+      setInput('')
+      setError('')
+      setHistoryOpen(false)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Não consegui abrir esta conversa.')
+    } finally { setHistoryLoading(false) }
+  }
+
+  const deleteConversation = async (id: string) => {
+    if (busy || historyLoading || deletingId || !window.confirm('Apagar esta conversa da Nayla?')) return
+    setDeletingId(id)
+    try {
+      await api.deleteAssistantConversation(id)
+      setConversations(current => current.filter(item => item.id !== id))
+      if (id === conversationId) {
+        setConversationId(null)
+        setMessages([])
+        setDraft(null)
+        setInput('')
+      }
+      setError('')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Não consegui apagar esta conversa.')
+    } finally { setDeletingId(null) }
+  }
+
+  const addAssistant = (text: string) => setMessages(current => [
+    ...current, { id: crypto.randomUUID(), role: 'assistant', text },
+  ])
 
   const send = async (value: string) => {
     const text = value.trim()
-    if (!text || busy) return
+    if (!text || busy || historyLoading || deletingId) return
+    const pendingId = crypto.randomUUID()
     setInput('')
     setError('')
     setDraft(null)
     setBusy(true)
-    setMessages(current => [...current, { id: crypto.randomUUID(), role: 'user', text }])
+    setMessages(current => [...current, { id: pendingId, role: 'user', text }])
     try {
       const kind = requestedAction(text)
       if (kind) {
@@ -111,24 +216,30 @@ export function AssistantPage() {
         const appointments = (await api.appointments(today, end.toISOString().slice(0, 10)))
           .filter(item => ['pending', 'confirmed'].includes(item.status) && Date.parse(item.startsAt) > Date.now())
           .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-        if (!appointments.length) addAssistant('Não encontrei agendamentos futuros ativos para alterar. Confira sua agenda ou peça à cliente para fazer um novo agendamento.')
-        else {
+        const prepared = await api.prepareAssistantAction(text, kind, conversationId || undefined)
+        setConversationId(prepared.conversationId)
+        setMessages(current => [...current.map(item => item.id === pendingId
+          ? { ...item, id: prepared.userMessageId } : item),
+        { id: prepared.assistantMessageId, role: 'assistant', text: prepared.answer }])
+        void refreshConversations()
+        if (appointments.length) {
           setDraft({ kind, appointments, selectedId: '', search: '', reason: '', stage: 'select' })
-          addAssistant(kind === 'reschedule-request'
-            ? 'Vou te ajudar a pedir uma remarcação. Escolha o agendamento exato; depois você poderá revisar e confirmar o aviso à cliente.'
-            : 'Vou te ajudar a cancelar por imprevisto. Escolha o agendamento exato; depois você poderá revisar e confirmar o aviso à cliente.')
         }
       } else {
-        const history = messages.slice(-8).map(({ role, text: previous }) => ({ role, text: previous }))
-        const response = await api.assistant(text, history)
-        if (response.mode !== 'instant') setModelStatus(current => ({
+        const response = await api.assistant(text, conversationId || undefined)
+        if (response.mode === 'ai' || response.mode === 'local') setModelStatus(current => ({
           provider: 'ollama', model: current?.model || 'local',
           aiAvailable: response.mode === 'ai',
           ...(response.mode === 'local' ? { reason: current?.reason || 'request_failed' } : {}),
         }))
-        addAssistant(response.answer)
+        setConversationId(response.conversationId)
+        setMessages(current => [...current.map(item => item.id === pendingId
+          ? { ...item, id: response.userMessageId } : item),
+        { id: response.assistantMessageId, role: 'assistant', text: response.answer }])
+        void refreshConversations()
       }
     } catch (reason) {
+      setMessages(current => current.filter(item => item.id !== pendingId))
       setInput(text)
       setError(reason instanceof Error ? reason.message : 'Não consegui responder agora. Tente novamente.')
     } finally { setBusy(false) }
@@ -150,7 +261,16 @@ export function AssistantPage() {
         ? await api.requestOwnerReschedule(selected.id, expected, draft.reason)
         : await api.cancelOwnerAppointment(selected.id, expected, draft.reason)
       setDraft(null)
-      addAssistant(`${draft.kind === 'reschedule-request' ? 'Pedido de remarcação registrado' : 'Agendamento cancelado'} para ${selected.clientName} (${selected.serviceName}, ${dateTime(selected.startsAt)}). O horário antigo foi liberado. ${notificationMessage(result.notificationStatus)}`)
+      const localResult = `${draft.kind === 'reschedule-request' ? 'Pedido de remarcação registrado' : 'Agendamento cancelado'} para ${selected.clientName} (${selected.serviceName}, ${dateTime(selected.startsAt)}). O horário antigo foi liberado. ${notificationMessage(result.notificationStatus)}`
+      try {
+        if (!conversationId || !result.eventId) throw new Error('Registro da conversa indisponível.')
+        const recorded = await api.recordAssistantActionResult(conversationId, result.eventId)
+        setMessages(current => [...current, { id: recorded.assistantMessageId, role: 'assistant', text: recorded.answer }])
+        void refreshConversations()
+      } catch {
+        addAssistant(localResult)
+        setError('A alteração foi concluída, mas não consegui salvar a confirmação nesta conversa. Confira a agenda.')
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não consegui alterar o agendamento. Confira a agenda e tente novamente.')
     } finally { setBusy(false) }
@@ -163,17 +283,40 @@ export function AssistantPage() {
       void send(input)
     }
   }
-  const clearConversation = () => {
-    setMessages([])
-    setDraft(null)
-    setError('')
-    setInput('')
-  }
-
   return <div className="page assistant-page">
     {returnTo ? <Link className="assistant-mobile-return" to={returnTo}><ArrowLeft size={17} /> Voltar à tela anterior</Link> : null}
     <PageHeading eyebrow="SUA ASSISTENTE" title="Converse com a Nayla"
       description="Pergunte sobre seu espaço, suas clientes, seus resultados e sua área de atuação." />
+    <div className="assistant-history-toolbar">
+      <button type="button" className="assistant-history-toggle" aria-expanded={historyOpen}
+        aria-controls="assistant-saved-conversations" onClick={() => setHistoryOpen(value => !value)}>
+        <History size={17} /> Conversas salvas <span>{conversations.length}</span>
+      </button>
+      <button type="button" className="assistant-new-button" onClick={startNewConversation}
+        disabled={busy || historyLoading || Boolean(deletingId)}><Plus size={17} /> Nova conversa</button>
+    </div>
+    <div className="assistant-workspace">
+      <aside id="assistant-saved-conversations" className={`assistant-history ${historyOpen ? 'open' : ''}`}
+        aria-label="Conversas salvas da Nayla">
+        <div className="assistant-history-heading"><History size={17} /><strong>Conversas salvas</strong></div>
+        {historyLoading && !conversations.length ? <p role="status">Carregando conversas...</p> :
+          conversations.length ? <div className="assistant-history-list">{conversations.map(item =>
+            <div className={`assistant-history-item ${item.id === conversationId ? 'active' : ''}`} key={item.id}>
+              <button type="button" className="assistant-history-open" aria-current={item.id === conversationId ? 'true' : undefined}
+                disabled={busy || historyLoading || Boolean(deletingId)} onClick={() => void openConversation(item.id)}>
+                <strong>{item.title}</strong><span>{item.preview}</span>
+                <small>{conversationDate(item.updatedAt)} · {item.messageCount} mensagens</small>
+              </button>
+              <button type="button" className="assistant-history-delete" aria-label={`Apagar conversa: ${item.title}`}
+                title="Apagar conversa" disabled={busy || historyLoading || Boolean(deletingId)}
+                onClick={() => void deleteConversation(item.id)}><Trash2 size={15} /></button>
+            </div>)}
+            {moreConversations ? <button type="button" className="assistant-history-more"
+              disabled={busy || historyLoading || loadingMore} onClick={() => void loadMoreConversations()}>
+              {loadingMore ? 'Carregando...' : 'Carregar conversas anteriores'}
+            </button> : null}
+          </div> : <p>Suas conversas aparecerão aqui depois da primeira pergunta.</p>}
+      </aside>
     <Panel className="chat-panel">
       <div className="chat-top">
         <span className="chat-avatar"><Sparkles size={22}/></span>
@@ -184,10 +327,6 @@ export function AssistantPage() {
             {modelStatusText(modelStatus)}
           </small>
         </div>
-        {messages.length > 0 && <button type="button" className="chat-clear"
-          onClick={clearConversation} disabled={busy} title="Começar uma conversa nova">
-          <RotateCcw size={15}/> Nova conversa
-        </button>}
       </div>
       <div className="chat-messages">
         {messages.length === 0
@@ -200,7 +339,7 @@ export function AssistantPage() {
                 ? 'Converse livremente sobre seu negócio, os dados do app e as áreas de beleza do seu cadastro.'
                 : 'Posso consultar os dados do app e explicar suas funções. A conversa livre está sendo preparada pela Nayla.'}</p>
             <div className="prompt-grid">
-              {prompts.map(prompt => <button type="button" key={prompt.text} disabled={busy}
+              {prompts.map(prompt => <button type="button" key={prompt.text} disabled={busy || historyLoading}
                 onClick={() => void send(prompt.text)}>{prompt.icon}<span>{prompt.text}</span></button>)}
             </div>
           </div>
@@ -224,12 +363,13 @@ export function AssistantPage() {
             onChange={event => setInput(event.target.value)} onKeyDown={handleComposerKeyDown}
             placeholder="Pergunte sobre sua agenda, resultados ou serviços..."
             maxLength={1000} />
-          <button type="submit" disabled={!input.trim() || busy} aria-label="Enviar mensagem"><ArrowUp size={20}/></button>
+          <button type="submit" disabled={!input.trim() || busy || historyLoading} aria-label="Enviar mensagem"><ArrowUp size={20}/></button>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <small>Enter envia · Shift+Enter quebra linha. A Nayla consulta apenas os dados do seu espaço. Alterações precisam da sua confirmação.</small>
       </form>
     </Panel>
+    </div>
   </div>
 }
 

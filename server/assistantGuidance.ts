@@ -1,3 +1,6 @@
+import type { Analytics } from './analytics.js';
+import { assistantKnowledgeFor } from './assistantKnowledge.js';
+
 type Service = { name: string; category: string; duration_minutes: number; price_cents: number };
 export type AssistantBusiness = {
   name: string; slug: string; specialties: string[]; services: Service[];
@@ -15,6 +18,70 @@ const labels: Record<string, string> = {
 const money = (cents: number) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
 }).format(cents / 100);
+
+const reais = (value: number) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL',
+}).format(value);
+
+/** Advice that can be grounded in this owner's analytics without waiting for a model. */
+export function isBusinessAdviceQuestion(query: string): boolean {
+  const asksForAction = /\b(como|dicas?|sugestoes?|ideias?|estrategias?|orientacoes?|planos?|recomendacoes?|o que fazer|por onde comecar)\b/.test(query);
+  const businessGoal = /melhor|crescer|aument|elevar|atrair|captar|conquistar|fideliz|reter|retorno|ticket|precific|preco|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas|negocio/.test(query);
+  const actionRequest = /\b(remarcar|reagendar|desmarcar|cancelar)\b/.test(query);
+  return asksForAction && businessGoal && !actionRequest;
+}
+
+export function personalizedBusinessAdvice(query: string, business: AssistantBusiness,
+  data: Analytics): string {
+  const { period, overview, clients, appointments, services } = data;
+  const window = `${period.from.split('-').reverse().join('/')} a ${period.to.split('-').reverse().join('/')}`;
+  const intro = `Para ${business.name}, de ${window} (${period.days} dias): ${overview.bookings} reserva(s), ${overview.completed.current} atendimento(s) concluído(s), ${reais(overview.income.current)} em entradas registradas e ${overview.completed.current ? reais(overview.ticketAverage.current) : 'ticket médio ainda sem base'}. Entradas do Financeiro e valores dos atendimentos são medidas diferentes.`;
+  const topService = [...services].sort((a, b) => b.bookings - a.bookings)[0];
+  const namedAreas = assistantKnowledgeFor(query, []).specialtyGuides;
+  const activeArea = business.specialties.includes(topService?.category || '') && topService?.bookings
+    ? topService.category
+    : business.services.find(item => business.specialties.includes(item.category))?.category
+      || business.specialties[0];
+  const guide = namedAreas.length
+    ? namedAreas.filter(item => business.specialties.includes(item.area)).slice(0, 2)
+    : assistantKnowledgeFor('', [activeArea]).specialtyGuides;
+  const outsideArea = namedAreas.some(item => !business.specialties.includes(item.area))
+    ? 'A área citada na pergunta não está selecionada no seu cadastro; os números abaixo se referem apenas ao seu espaço. '
+    : '';
+  const areaAdvice = `${outsideArea}${guide.length
+    ? `Na sua área (${guide.map(item => item.label).join(' e ')}): ${guide.map(item => item.commercialAdvice).join(' ')}`
+    : 'Descreva claramente cada serviço ativo, seu tempo e preço; registre preferências das clientes apenas quando forem úteis ao atendimento.'}`;
+  const serviceEvidence = topService?.bookings
+    ? `${topService.name} teve ${topService.bookings} reserva(s) e ${topService.completed} atendimento(s) concluído(s) neste período.`
+    : 'Ainda não há reservas suficientes para identificar o serviço mais procurado.';
+  const followup = clients.inactiveCount
+    ? `Hoje há ${clients.inactiveCount} cliente(s) sem visita concluída há pelo menos 30 dias e sem reserva futura. Confira a lista em Clientes e convide individualmente quem aceitar contato, sem presumir que todas precisam do mesmo intervalo de retorno.`
+    : clients.retention.eligible
+      ? `${clients.retention.returned} de ${clients.retention.eligible} cliente(s) atendidas no período anterior voltaram neste período (${clients.retention.rate}%). Acompanhe essa taxa por mais de um período antes de mudar a rotina de relacionamento.`
+      : 'Ainda não há base do período anterior para medir retorno. Conclua os atendimentos realizados na Agenda e acompanhe quantas clientes voltam.';
+  const loss = appointments.denominator &&
+    (appointments.cancellationRate || 0) + (appointments.noShowRate || 0) >= 15
+    ? `Houve ${appointments.statuses.cancelled} cancelamento(s) e ${appointments.statuses.noShow} falta(s) em ${appointments.denominator} reserva(s). Confirme o horário com antecedência e observe se as perdas se concentram em algum dia.`
+    : 'Acompanhe cancelamentos e faltas por dia da semana em Análises antes de alterar os horários.';
+  const ticket = overview.completed.current
+    ? `Compare os ${reais(overview.ticketAverage.current)} de ticket médio com preço, duração e materiais de cada serviço. O app não registra custo por serviço, então não é possível afirmar qual dá mais lucro.`
+    : 'Para analisar ticket, primeiro marque os atendimentos realizados como concluídos. Depois compare preço, duração e materiais por serviço.';
+  const finance = overview.expenses.current
+    ? `Despesas registradas: ${reais(overview.expenses.current)}; saldo dos lançamentos: ${reais(overview.balance.current)}. ${overview.balance.current < 0 ? 'Revise primeiro os custos recorrentes e materiais antes de mudar preços; confirme se todas as entradas foram lançadas.' : 'Registre também gastos pequenos e compare a evolução com períodos semelhantes.'} O saldo registrado não representa lucro líquido.`
+    : 'Não há despesas registradas neste período. Lance materiais, taxas e custos do espaço para não avaliar o negócio apenas pelas entradas.';
+  const acquisition = `${serviceEvidence} Revise nome, duração e preço dos serviços ativos e divulgue seu link /agendar/${business.slug}. Teste horários adicionais para o serviço mais procurado somente se houver capacidade na agenda.`;
+
+  const focus = /ticket|precific|preco|cobr|valor por atendimento/.test(query)
+    ? [ticket, serviceEvidence, areaAdvice]
+    : /retorn|fideliz|reter/.test(query)
+      ? [followup, areaAdvice, appointments.statuses.cancelled || appointments.statuses.noShow ? loss : ticket]
+      : /atrair|captar|conquistar|divulg|marketing|agenda cheia|mais clientes|mais agendamentos|mais vendas/.test(query)
+        ? [acquisition, areaAdvice, followup]
+        : [finance, followup, areaAdvice,
+          appointments.statuses.cancelled || appointments.statuses.noShow ? loss
+            : topService?.bookings ? acquisition : ticket];
+  return `${intro}\n\n${focus.map((item, index) => `${index + 1}. ${item}`).join('\n')}\n\nAcompanhe o efeito em Análises após mais um período semelhante. Esses dados mostram procura e registros; não comprovam lucro, causa da mudança nem resultado futuro.`;
+}
 
 // These are product instructions and conservative business tips, not generated claims
 // about a client's health or a particular procedure.

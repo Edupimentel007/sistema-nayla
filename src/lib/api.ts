@@ -27,8 +27,24 @@ export type Business = {
 export type User = { id: string; name: string; email: string; role: 'owner' }
 export type Session = { user: User; business: Business }
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; text: string }
-export type AssistantReply = { answer: string; mode: 'ai' | 'instant' | 'local' }
+export type AssistantReply = {
+  answer: string; mode: 'ai' | 'instant' | 'local' | 'timeout'; conversationId: string
+  userMessageId: string; assistantMessageId: string
+}
 export type AssistantStatus = { aiAvailable: boolean; provider: 'ollama'; model: string; reason?: string }
+export type AssistantConversation = {
+  id: string; title: string; createdAt: string; updatedAt: string
+  messageCount: number; preview: string
+}
+export type AssistantStoredMessage = AssistantHistoryItem & { id: string; createdAt: string }
+export type AssistantConversationDetail = {
+  conversation: Pick<AssistantConversation, 'id' | 'title' | 'createdAt' | 'updatedAt'>
+  messages: AssistantStoredMessage[]
+}
+export type AssistantActionKind = 'reschedule-request' | 'cancel-by-owner'
+export type AssistantActionPreparation = {
+  answer: string; conversationId: string; userMessageId: string; assistantMessageId: string
+}
 
 export type BillingPlan = 'monthly' | 'annual'
 export type BillingMethod = 'card' | 'pix'
@@ -257,9 +273,9 @@ export const api = {
   updateAppointment: (id: string, status: AppointmentStatus) =>
     request<Appointment>(`/api/appointments/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status }) }),
   requestOwnerReschedule: (id: string, expected: OwnerActionExpectation, reason?: string) =>
-    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/appointments/${encodeURIComponent(id)}/reschedule-request`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
+    request<Appointment & { notificationStatus: NotificationStatus; eventId: string }>(`/api/appointments/${encodeURIComponent(id)}/reschedule-request`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
   cancelOwnerAppointment: (id: string, expected: OwnerActionExpectation, reason?: string) =>
-    request<Appointment & { notificationStatus: NotificationStatus }>(`/api/appointments/${encodeURIComponent(id)}/cancel-by-owner`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
+    request<Appointment & { notificationStatus: NotificationStatus; eventId: string }>(`/api/appointments/${encodeURIComponent(id)}/cancel-by-owner`, { method: 'PATCH', body: json({ ...expected, reason: reason?.trim() || undefined }) }),
   createAppointment: (data: { clientId: string; serviceId: string; date: string; time: string; notes?: string; whatsappOptIn?: boolean }) =>
     request<Appointment>('/api/appointments', { method: 'POST', body: json(data) }),
   clients: () => request<Client[]>('/api/clients'),
@@ -279,8 +295,22 @@ export const api = {
   deleteService: (id: string) => request<void>(`/api/services/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   updateBusiness: (data: Partial<Business>) => request<Business>('/api/business', { method: 'PATCH', body: json(data) }),
   assistantStatus: () => request<AssistantStatus>('/api/assistant/status'),
-  assistant: (message: string, history: AssistantHistoryItem[] = []) =>
-    request<AssistantReply>('/api/assistant', { method: 'POST', body: json({ message, history }) }),
+  assistantConversations: (offset = 0) =>
+    request<{ conversations: AssistantConversation[] }>(`/api/assistant/conversations?limit=100&offset=${offset}`),
+  assistantConversation: (id: string) =>
+    request<AssistantConversationDetail>(`/api/assistant/conversations/${encodeURIComponent(id)}`),
+  deleteAssistantConversation: (id: string) =>
+    request<void>(`/api/assistant/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  assistant: (message: string, conversationId?: string) =>
+    request<AssistantReply>('/api/assistant', { method: 'POST', body: json({ message, conversationId }) }),
+  prepareAssistantAction: (message: string, kind: AssistantActionKind, conversationId?: string) =>
+    request<AssistantActionPreparation>('/api/assistant/action-preparation', {
+      method: 'POST', body: json({ message, kind, conversationId }),
+    }),
+  recordAssistantActionResult: (conversationId: string, eventId: string) =>
+    request<{ answer: string; assistantMessageId: string }>(
+      `/api/assistant/conversations/${encodeURIComponent(conversationId)}/action-result`,
+      { method: 'POST', body: json({ eventId }) }),
   whatsappConfig: () => request<WhatsAppConfig>('/api/notifications/config'),
   updateWhatsappConfig: (data: WhatsAppConfigUpdate) =>
     request<WhatsAppConfig>('/api/notifications/config', { method: 'PATCH', body: json(data) }),

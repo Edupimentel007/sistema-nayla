@@ -67,6 +67,27 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS assistant_conversations (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assistant_conversations_owner_updated
+  ON assistant_conversations(business_id,owner_user_id,updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS assistant_messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+  text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 10000),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assistant_messages_conversation
+  ON assistant_messages(conversation_id,created_at);
+
 CREATE TABLE IF NOT EXISTS google_oauth_flows (
   state_hash TEXT PRIMARY KEY,
   verifier TEXT NOT NULL,
@@ -147,6 +168,12 @@ CREATE TABLE IF NOT EXISTS appointment_events (
 );
 CREATE INDEX IF NOT EXISTS appointment_events_business_date ON appointment_events(business_id,created_at);
 CREATE INDEX IF NOT EXISTS appointment_events_appointment ON appointment_events(appointment_id,created_at);
+
+CREATE TABLE IF NOT EXISTS assistant_action_results (
+  event_id TEXT PRIMARY KEY REFERENCES appointment_events(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL UNIQUE REFERENCES assistant_messages(id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS financial_entries (
   id TEXT PRIMARY KEY,

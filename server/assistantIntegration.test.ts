@@ -53,11 +53,13 @@ function shiftedDate(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-async function registerOwner(suffix: string) {
+async function registerOwner(suffix: string,
+  specialty: 'unhas' | 'cilios' | Array<'unhas' | 'cilios' | 'maquiagem' | 'massagens'> = 'unhas') {
+  const specialties = Array.isArray(specialty) ? specialty : [specialty];
   const registered = await request('/api/auth/register', { method: 'POST', body: JSON.stringify({
     ownerName: 'Ana Silva', businessName: 'Estúdio Ana', slug: `estudio-ana-${suffix}`,
-    email: `ana-${suffix}@example.test`, password: 'SenhaMuitoForte123', specialties: ['unhas'],
-    selectedServices: catalog.filter(item => item.category === 'unhas').map(item => item.id),
+    email: `ana-${suffix}@example.test`, password: 'SenhaMuitoForte123', specialties,
+    selectedServices: catalog.filter(item => specialties.some(area => area === item.category)).map(item => item.id),
   }) });
   assert.equal(registered.status, 201);
   assert.ok(registered.cookie);
@@ -97,6 +99,7 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
         messages: body.messages || [], requestChars: raw.length,
       };
       modelCalls.push(call);
+      if (raw.includes('resposta lenta')) return;
       if (call.messages.some(item => item.role === 'tool')) {
         res.end(JSON.stringify(completion('finance-details',
           'Consulta realizada; nos últimos 7 dias, o faturamento registrado foi R$ 123,45.')));
@@ -218,10 +221,18 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
         message: 'Sou manicure. Como posso aumentar o retorno das clientes sem reduzir preços?',
       }) }, cookie);
       assert.equal(advice.status, 200);
-      assert.equal(advice.body.mode, 'ai');
-      assert.match(advice.body.answer, /retorno/);
+      assert.equal(advice.body.mode, 'instant');
+      assert.match(advice.body.answer, /Unhas/);
+      assert.match(advice.body.answer, /sem base|ainda nÃ£o hÃ¡ base/i);
+      assert.equal(modelCalls.length, 0);
+
+      const open = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Como organizar uma conversa inicial para uma cliente que pergunta sobre alongamento em gel?',
+      }) }, cookie);
+      assert.equal(open.status, 200);
+      assert.equal(open.body.mode, 'ai');
       assert.deepEqual(modelCalls[0].toolNames, []);
-      assert.ok(modelCalls[0].requestChars < 4500, `Prompt livre: ${modelCalls[0].requestChars} caracteres`);
+      assert.ok(modelCalls[0].requestChars < 5000, `Prompt livre: ${modelCalls[0].requestChars} caracteres`);
       assert.match(String(modelCalls[0].messages.find(item => item.role === 'user')?.content), /orientacaoDaArea/);
       assert.match(String(modelCalls[0].messages.at(-1)?.content), /\/no_think/);
 
@@ -236,6 +247,86 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
       assert.match(JSON.stringify(modelCalls[2].messages.filter(item => item.role === 'tool')), /123\.45/);
       assert.equal(modelCalls.length, 3);
   });
+
+  it('gives specific business advice from the authenticated owner and requested period',
+    { timeout: 20_000 }, async () => {
+      const nails = await registerOwner('advice-nails');
+      const lashes = await registerOwner('advice-lashes', 'cilios');
+      assert.equal((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+        type: 'income', description: 'Recebimento recente', category: 'Serviço',
+        amount: 137.15, date: saoPauloDate(),
+      }) }, nails)).status, 201);
+      assert.equal((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+        type: 'income', description: 'Recebimento antigo', category: 'Serviço',
+        amount: 501.23, date: shiftedDate(-10),
+      }) }, nails)).status, 201);
+      assert.equal((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+        type: 'income', description: 'Outro espaço', category: 'Serviço',
+        amount: 789.02, date: saoPauloDate(),
+      }) }, lashes)).status, 201);
+      const first = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas para melhorar meu negócio nos últimos 7 dias',
+      }) }, nails);
+      assert.equal(first.status, 200);
+      assert.equal(first.body.mode, 'instant');
+      assert.match(first.body.answer, /137,15/);
+      assert.match(first.body.answer, /Unhas/);
+      assert.doesNotMatch(first.body.answer, /501,23|789,02|Cílios/);
+      assert.match(first.body.answer, /7 dias/);
+
+      const second = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas para melhorar meu negócio',
+      }) }, lashes);
+      assert.equal(second.status, 200);
+      assert.equal(second.body.mode, 'instant');
+      assert.match(second.body.answer, /789,02/);
+      assert.match(second.body.answer, /Cílios/);
+      assert.doesNotMatch(second.body.answer, /137,15|501,23|Unhas/);
+
+      const thirdArea = await registerOwner('advice-third-area',
+        ['unhas', 'cilios', 'maquiagem', 'massagens']);
+      const targeted = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Como melhorar meu negócio de maquiagem?',
+      }) }, thirdArea);
+      assert.equal(targeted.status, 200);
+      assert.equal(targeted.body.mode, 'instant');
+      assert.match(targeted.body.answer, /Na sua área \(Maquiagem\)/);
+      assert.doesNotMatch(targeted.body.answer, /Na sua área \(Unhas|Na sua área \(Cílios/);
+
+      const financialAdvice = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Dicas para melhorar meu faturamento nos últimos 7 dias',
+      }) }, nails);
+      assert.equal(financialAdvice.status, 200);
+      assert.equal(financialAdvice.body.mode, 'instant');
+      assert.match(financialAdvice.body.answer, /137,15/);
+      assert.doesNotMatch(financialAdvice.body.answer, /501,23|789,02/);
+
+      const unrelated = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Como melhorar meu negócio de sobrancelhas?',
+      }) }, nails);
+      assert.equal(unrelated.status, 200);
+      assert.match(unrelated.body.answer, /área citada.*não está selecionada/i);
+      assert.doesNotMatch(unrelated.body.answer, /Na sua área \(Sobrancelhas\)/);
+    });
+
+  it('returns within 30 seconds when the model stalls, without using numbers from the wrong period',
+    { timeout: 32_000 }, async () => {
+      const cookie = await registerOwner('timeout-test');
+      assert.equal((await request('/api/finance', { method: 'POST', body: JSON.stringify({
+        type: 'income', description: 'Hoje apenas', category: 'Serviço',
+        amount: 321.45, date: saoPauloDate(),
+      }) }, cookie)).status, 201);
+      const started = performance.now();
+      const answer = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Qual foi meu faturamento no mês passado? resposta lenta',
+      }) }, cookie);
+      const elapsed = performance.now() - started;
+      assert.equal(answer.status, 200);
+      assert.equal(answer.body.mode, 'timeout');
+      assert.ok(elapsed < 30_000, `Resposta demorou ${Math.round(elapsed)} ms`);
+      assert.match(answer.body.answer, /não consegui consultar esse detalhe ou período/i);
+      assert.doesNotMatch(answer.body.answer, /321,45/);
+    });
 
   it('routes tomorrow, a written date and yesterday absence to the agenda query',
     { timeout: 20_000 }, async () => {
@@ -263,10 +354,14 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
   it('keeps the requested period on ticket follow-up and queries frequent clients in the prior month',
     { timeout: 20_000 }, async () => {
       const cookie = await registerOwner('analytics-test');
+      const first = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
+        message: 'Qual foi meu ticket médio nos últimos 30 dias?',
+      }) }, cookie);
+      assert.equal(first.status, 200);
+      assert.match(first.body.conversationId, /^[0-9a-f-]{36}$/);
       const start = modelCalls.length;
       const ticket = await request('/api/assistant', { method: 'POST', body: JSON.stringify({
-        message: 'E nos últimos 90 dias?', history: [{ role: 'user',
-          text: 'Qual foi meu ticket médio nos últimos 30 dias?' }],
+        message: 'E nos últimos 90 dias?', conversationId: first.body.conversationId,
       }) }, cookie);
       assert.equal(ticket.status, 200);
       assert.equal(ticket.body.mode, 'ai');

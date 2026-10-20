@@ -66,7 +66,8 @@ describe('Nayla API', () => {
     processHandle = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
       cwd: resolve('.'),
       env: { ...process.env, PORT: String(port), DATABASE_PATH: join(tempDirectory, 'nayla.sqlite'),
-        NODE_ENV: 'test', OPENAI_API_KEY: '', WHATSAPP_MODE: 'simulate',
+        NODE_ENV: 'test', OPENAI_API_KEY: '', OLLAMA_BASE_URL: 'http://127.0.0.1:1/v1',
+        WHATSAPP_MODE: 'simulate',
         WHATSAPP_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), APP_ORIGIN: baseUrl },
     });
     processHandle.stdout.on('data', chunk => { serverOutput += String(chunk); });
@@ -434,10 +435,10 @@ describe('Nayla API', () => {
     assert.equal(serviceAdvice.body.answer.includes('Extensão de cílios'), false);
     const beautyAdvice = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Como posso melhorar meu atendimento de unhas?' }) }, ownerCookie);
-    expect(beautyAdvice.body.answer).toContain('Para unhas');
+    assert.match(beautyAdvice.body.answer, /unhas/i);
     const areaAdvice = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Dicas para atender melhor na minha área' }) }, ownerCookie);
-    expect(areaAdvice.body.answer).toContain('Para unhas');
+    assert.match(areaAdvice.body.answer, /unhas/i);
     const otherArea = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Dicas para melhorar meu atendimento de cílios?' }) }, ownerCookie);
     expect(otherArea.body.answer).toContain('não está selecionada');
@@ -449,10 +450,10 @@ describe('Nayla API', () => {
         { role: 'user', text: 'Quais serviços ofereço?' },
         { role: 'assistant', text: 'Seus serviços estão no app.' },
       ] }) }, ownerCookie);
-    expect(openQuestion.body.answer).toContain('IA conversacional ainda não está ativa');
+    expect(openQuestion.body.answer).toContain('Não consegui concluir uma resposta confiável');
     expect(openQuestion.body.mode).toBe('local');
     expect((await request('/api/assistant', { method: 'POST', body: JSON.stringify({
-      message: 'Olá?', history: Array(9).fill({ role: 'user', text: 'oi' }),
+      message: 'Olá?', conversationId: 'invalid-id',
     }) }, ownerCookie)).status).toBe(400);
     const inactive = await request('/api/assistant', { method: 'POST',
       body: JSON.stringify({ message: 'Qual cliente não voltou depois de um mês?' }) }, ownerCookie);

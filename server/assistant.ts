@@ -1,14 +1,15 @@
 import { generateText, stepCountIs, type ModelMessage } from 'ai';
 import { db, fromCents, localNow } from './db.js';
 import { analyticsFor, type Analytics, type AnalyticsPeriod } from './analytics.js';
-import { guidanceAnswer, type AssistantBusiness } from './assistantGuidance.js';
+import { guidanceAnswer, isBusinessAdviceQuestion, personalizedBusinessAdvice,
+  type AssistantBusiness } from './assistantGuidance.js';
 import { assistantKnowledgeFor } from './assistantKnowledge.js';
 import { createAssistantDataTools } from './assistantDataTools.js';
 import { assistantModelStatus, getAssistantModel } from './assistantModel.js';
 
 type Row = Record<string, any>;
 export type AssistantHistoryItem = { role: 'user' | 'assistant'; text: string };
-export type AssistantReply = { answer: string; mode: 'ai' | 'instant' | 'local' };
+export type AssistantReply = { answer: string; mode: 'ai' | 'instant' | 'local' | 'timeout' };
 export const assistantStatus = assistantModelStatus;
 const currency = (amount: number) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL',
@@ -208,7 +209,7 @@ function fallback(message: string, context: ReturnType<typeof contextFor>, analy
   if (/como|ajuda|usar|cadastr|servic|configur|agenda/.test(query)) {
     return 'Para começar, confira seus serviços e preços em Serviços, ajuste dias e horários em Configurações e compartilhe seu link de agendamento. Na Agenda você confirma ou conclui atendimentos; o Financeiro registra entradas e despesas. Em Análises você acompanha gráficos e dicas para clientes, ticket médio, serviços, caixa e agenda. Posso consultar esses dados também.';
   }
-  return 'A IA conversacional ainda não está ativa neste ambiente, então não consigo responder essa pergunta aberta com segurança. Posso consultar sua agenda, financeiro, clientes, serviços e análises ou explicar como usar cada área do app.';
+  return 'Não consegui concluir uma resposta confiável para essa pergunta aberta agora. Posso consultar sua agenda, financeiro, clientes, serviços e análises ou explicar como usar cada área do app. Se quiser uma dica de negócio personalizada, diga qual objetivo deseja melhorar.';
 }
 
 type AssistantContext = ReturnType<typeof contextFor>;
@@ -296,7 +297,7 @@ function compactContext(query: string, context: AssistantContext, analytics: Ana
       /quais|listar|lista|meus|ofereco|disponiveis|catalogo|tabela|quanto custa|preco d[ao]/.test(query) && !selectedTool)
     data.servicosAtivos = context.business.services.map(item =>
       [item.name, currency(fromCents(item.price_cents)), `${item.duration_minutes} min`]);
-  if (analytics && /analis|analit|indicador|grafico|compar|ticket|taxa|dados|estat|quanto|quais|quem|frequen|ocupac|desempenho|lucr|margem/.test(analyticsQuery))
+  if (analytics && /analis|analit|indicador|grafico|compar|ticket|taxa|dados|estat|quanto|quais|quem|frequen|ocupac|desempenho|lucr|margem|melhor|negocio|crescer|aument|fideliz|retorno/.test(analyticsQuery))
     data.analise = analyticsReply(analyticsQuery, analytics);
   if (/app|sistema|tela|onde|cadastr|configur|logo|link|plano|assinatura|whatsapp|lembrete|notificac|agenda|financeir|grafico|analise|nayla|assistente|chat|usar|comec|funcionalidad/.test(query))
     data.ajudaApp = knowledge.appGuides.slice(0, 2).map(item => ({
@@ -344,6 +345,15 @@ function isInstantQuestion(query: string, selectedTool: AssistantToolName | null
   return directInactive;
 }
 
+function fallbackForTool(query: string, selectedTool: AssistantToolName, businessId: string): string {
+  const standardPeriod = query.match(/\b(7|30|60|90)\s*dias?\b/);
+  const otherPeriod = /\b(?:anteriores?|passad[oa]s?|ontem|amanha|trimestre|ano|entre)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(query);
+  if (selectedTool === 'consultar_financeiro' && standardPeriod && !otherPeriod) {
+    return analyticsReply(query, analyticsFor(businessId, Number(standardPeriod[1]) as AnalyticsPeriod));
+  }
+  return 'Não consegui consultar esse detalhe ou período agora. Tente novamente em instantes ou confira os registros em Agenda, Financeiro, Clientes e Análises. Não vou substituir a consulta por números de outro período.';
+}
+
 export async function answerAssistant(businessId: string, message: string,
   history: AssistantHistoryItem[] = []): Promise<AssistantReply> {
   const context = contextFor(businessId);
@@ -352,13 +362,23 @@ export async function answerAssistant(businessId: string, message: string,
   const hasOwnSubject = /fatur|receit|despes|gast|cust|financeir|saldo|caixa|entrada|saida|lancament|agenda|agendament|atendimento|horario|cliente|falt|servic|ticket|grafico|analise|indicador|cancel|remarc|reagend|retorn|inativ/.test(query);
   const routingQuery = message.length < 60 && lastUser && !hasOwnSubject
     ? normalize(`${lastUser} ${message}`) : query;
-  const selectedTool = toolForQuestion(routingQuery);
+  const proposedTool = toolForQuestion(routingQuery);
+  const adviceCandidate = routingQuery === query && isBusinessAdviceQuestion(query);
+  const standardPeriodAdvice = adviceCandidate && /\b(?:7|30|60|90)\s*dias?\b/.test(query)
+    && !/\b(?:anteriores?|passad[oa]s?|ontem|amanha|trimestre|ano|entre)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(query);
+  const selectedTool = proposedTool === 'consultar_financeiro' && standardPeriodAdvice
+    ? null : proposedTool;
+  const adviceQuestion = !selectedTool && adviceCandidate;
   const analyticsQuery = analyticalQuestion(query) ? query : routingQuery;
   const periodQuery = /\b(?:7|30|60|90)\s*dias?\b/.test(query) ? query : analyticsQuery;
-  const analytics = !selectedTool && analyticalQuestion(analyticsQuery)
+  const analytics = !selectedTool && (analyticalQuestion(analyticsQuery) || adviceQuestion)
     ? analyticsFor(businessId, requestedPeriod(periodQuery)) : null;
-  const localAnswer = analytics && analyticsQuery !== query
-    ? analyticsReply(analyticsQuery, analytics) : fallback(message, context, analytics);
+  const localAnswer = selectedTool
+    ? fallbackForTool(routingQuery, selectedTool, businessId)
+    : analytics && analyticsQuery !== query
+      ? analyticsReply(analyticsQuery, analytics) : fallback(message, context, analytics);
+  if (adviceQuestion && analytics)
+    return { answer: personalizedBusinessAdvice(query, context.business, analytics), mode: 'instant' };
   if (isInstantQuestion(query, selectedTool, analytics, routingQuery))
     return { answer: localAnswer, mode: 'instant' };
   const status = await assistantStatus();
@@ -386,6 +406,7 @@ export async function answerAssistant(businessId: string, message: string,
         'Ajude com o app e a área cadastrada. Se a área não for cadastrada, diga que a dica é geral. Não dê diagnóstico, tratamento, contraindicação ou técnica invasiva; sintomas e complicações exigem profissional habilitado.',
         'O chat não altera agenda nem envia WhatsApp; a profissional confirma a ação no app. Não peça nem exponha CPF, telefone, senha, token, cartão, dados bancários ou dados de outro espaço. Não alegue pesquisa online. Horário America/Sao_Paulo.',
         'Use tom profissional e não use emojis.',
+        'Responda diretamente em frases claras. Para recomendações comerciais, cite a observação e o período que a sustentam, proponha até três ações práticas para a área cadastrada e diga qual indicador acompanhar. Se faltarem dados, diga exatamente quais faltam e evite conclusões genéricas.',
         ...(selectedTool ? ['Use a ferramenta oferecida para consultar o período ou detalhe solicitado antes de responder.'] : []),
       ].join(' '),
       messages,
@@ -394,7 +415,7 @@ export async function answerAssistant(businessId: string, message: string,
       maxOutputTokens: isSmallQwen3 ? 240 : 900,
       temperature: 0.3,
       maxRetries: 0,
-      abortSignal: AbortSignal.timeout(90_000),
+      timeout: { totalMs: 24_000, stepMs: 18_000 },
     });
     const answer = response.text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     return answer
@@ -402,6 +423,7 @@ export async function answerAssistant(businessId: string, message: string,
       : { answer: localAnswer, mode: 'local' };
   } catch (error) {
     console.warn('Nayla: serviço de IA indisponível', error instanceof Error ? error.name : 'erro desconhecido');
-    return { answer: localAnswer, mode: 'local' };
+    const timedOut = error instanceof Error && /^(AbortError|TimeoutError)$/.test(error.name);
+    return { answer: localAnswer, mode: timedOut ? 'timeout' : 'local' };
   }
 }

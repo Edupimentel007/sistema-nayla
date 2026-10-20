@@ -1,3 +1,30 @@
+.assistant-history-toolbar { display: flex; justify-content: flex-end; gap: 9px; margin: -8px 0 13px; }
+.assistant-history-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.assistant-history-toolbar button:hover:not(:disabled) { border-color: var(--pink); color: var(--pink); }
+.assistant-history-toolbar button:disabled { opacity: .5; cursor: wait; }
+.assistant-history-toggle { display: none !important; }
+.assistant-workspace { display: grid; grid-template-columns: minmax(205px, 245px) minmax(0, 1fr); align-items: stretch; gap: 14px; flex: 1; min-height: 0; }
+.assistant-workspace .chat-panel { min-width: 0; }
+.assistant-history { min-width: 0; max-height: calc(100vh - 180px); overflow-y: auto; align-self: start; padding: 14px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.assistant-history-heading { display: flex; align-items: center; gap: 8px; padding: 2px 7px 13px; color: var(--ink); font-size: 12px; }
+.assistant-history-heading svg { color: var(--pink); }
+.assistant-history > p { margin: 8px 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.assistant-history-list { display: grid; gap: 7px; }
+.assistant-history-item { display: flex; align-items: flex-start; min-width: 0; border: 1px solid transparent; border-radius: 8px; }
+.assistant-history-item.active { border-color: var(--pink); background: var(--pink-softer); }
+.assistant-history-open { display: grid; gap: 5px; flex: 1; min-width: 0; padding: 10px 8px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.assistant-history-open strong, .assistant-history-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-history-open strong { font-size: 11px; }
+.assistant-history-open span, .assistant-history-open small { color: var(--muted); font-size: 10px; }
+.assistant-history-open:disabled, .assistant-history-delete:disabled { cursor: wait; opacity: .55; }
+.assistant-history-item:not(.active):hover { background: var(--surface-2); }
+.assistant-history-delete { display: grid; place-items: center; flex: none; width: 30px; height: 32px; margin: 5px 4px 0 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.assistant-history-delete:hover:not(:disabled) { background: var(--surface-2); color: var(--pink); }
+.assistant-history-more { width: 100%; min-height: 36px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--pink); font-size: 10px; font-weight: 700; cursor: pointer; }
+.assistant-history-more:hover:not(:disabled) { border-color: var(--pink); }
+.assistant-history-more:disabled { opacity: .5; cursor: wait; }
+.assistant-history-open:focus-visible, .assistant-history-delete:focus-visible, .assistant-history-more:focus-visible, .assistant-history-toolbar button:focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+
 .assistant-page .chat-top-info { flex: 1; min-width: 0; }
 .assistant-page .chat-top-info small { line-height: 1.4; }
 .assistant-page .online-dot.offline { background: var(--muted); }
@@ -50,6 +77,12 @@
 .assistant-page .prompt-grid button:disabled { opacity: .5; cursor: wait; }
 
 @media (max-width: 650px) {
+  .assistant-history-toolbar { justify-content: space-between; margin-top: -5px; }
+  .assistant-history-toggle { display: inline-flex !important; }
+  .assistant-history-toggle span { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--surface-2); color: var(--muted); }
+  .assistant-workspace { display: flex; flex-direction: column; }
+  .assistant-history { display: none; max-height: 270px; width: 100%; }
+  .assistant-history.open { display: block; }
   .assistant-page .chat-clear { padding: 7px; font-size: 10px; }
   .assistant-page .chat-top-info small { font-size: 10px; }
   .assistant-page .chat-input-wrap textarea { font-size: 14px; }

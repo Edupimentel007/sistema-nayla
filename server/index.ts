@@ -11,6 +11,9 @@ import { applyWebhookStatuses, NotificationError, sendBookingConfirmation,
   sendBookingChangeNotification, updateWhatsAppSettings, verifyWebhookChallenge, verifyWebhookSignature,
   webhookSettings, whatsAppConfig } from './notifications.js';
 import { answerAssistant, assistantStatus } from './assistant.js';
+import { assistantConversationHistory, AssistantActionConflict, AssistantConversationNotFound,
+  deleteAssistantConversation, getAssistantConversation, listAssistantConversations,
+  saveAssistantActionResult, saveAssistantExchange } from './assistantHistory.js';
 import { businessLogoUrl, deleteBusinessLogo, parseLogo, publicBusinessLogo, uploadBusinessLogo } from './logo.js';
 import { analyticsRouter } from './analytics.js';
 import { GoogleAuthError, mountGoogleAuth } from './googleAuth.js';
@@ -839,12 +842,12 @@ async function rescheduleAppointment(req: Request, res: Response, actor: ChangeA
     notifyOfBookingChange({ businessId, appointmentId: before.id, clientId: before.client_id,
       actor, eventId, cancelled: false, clientName: before.client_name,
       serviceName: after.service_name, date: after.date, time: after.start_time });
-    return { before, after };
+    return { before, after, eventId };
   }).immediate();
   const notificationStatus = await notifyAppointmentChange(
     actor === 'client' ? 'client_rescheduled' : 'owner_rescheduled',
     changed.before, changed.after, input.reason);
-  res.json({ ...appointmentDto(changed.after), notificationStatus });
+  res.json({ ...appointmentDto(changed.after), notificationStatus, eventId: changed.eventId });
 }
 async function cancelAppointment(req: Request, res: Response,
   actor: ChangeActor, kind: ChangeKind) {
@@ -863,10 +866,10 @@ async function cancelAppointment(req: Request, res: Response,
       clientId: before.client_id, actor, eventId, cancelled: true,
       clientName: before.client_name, serviceName: before.service_name,
       date: before.date, time: before.start_time });
-    return { before, after };
+    return { before, after, eventId };
   }).immediate();
   const notificationStatus = await notifyAppointmentChange(kind, changed.before, changed.after, reason);
-  res.json({ ...appointmentDto(changed.after), notificationStatus });
+  res.json({ ...appointmentDto(changed.after), notificationStatus, eventId: changed.eventId });
 }
 async function cancelClientAppointment(req: Request, res: Response) {
   return cancelAppointment(req, res, 'client', 'client_cancelled');
@@ -1040,14 +1043,66 @@ app.get('/api/dashboard', owner, (req, res) => {
 });
 
 app.get('/api/assistant/status', owner, async (_req, res) => res.json(await assistantStatus()));
-app.post('/api/assistant', owner, rateLimit(60, 60_000), async (req, res) => {
-  const { message, history } = z.object({
+app.get('/api/assistant/conversations', owner, (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 100);
+  const offset = z.coerce.number().int().min(0).parse(req.query.offset ?? 0);
+  const user = currentUser(res);
+  res.json(listAssistantConversations({ businessId: user.business_id, userId: user.id }, limit, offset));
+});
+app.get('/api/assistant/conversations/:id', owner, (req, res) => {
+  const conversationId = z.uuid().parse(req.params.id);
+  const user = currentUser(res);
+  const conversation = getAssistantConversation({ businessId: user.business_id, userId: user.id },
+    conversationId);
+  if (!conversation) throw new ApiError(404, 'Conversa não encontrada.');
+  res.json(conversation);
+});
+app.delete('/api/assistant/conversations/:id', owner, (req, res) => {
+  const conversationId = z.uuid().parse(req.params.id);
+  const user = currentUser(res);
+  if (!deleteAssistantConversation({ businessId: user.business_id, userId: user.id }, conversationId))
+    throw new ApiError(404, 'Conversa não encontrada.');
+  res.status(204).end();
+});
+app.post('/api/assistant/action-preparation', owner, rateLimit(60, 60_000), (req, res) => {
+  const { message, conversationId, kind } = z.object({
     message: z.string().trim().min(2).max(1000),
-    history: z.array(z.object({
-      role: z.enum(['user', 'assistant']), text: z.string().trim().min(1).max(1000),
-    })).max(8).default([]),
+    conversationId: z.uuid().optional(),
+    kind: z.enum(['reschedule-request', 'cancel-by-owner']),
   }).parse(req.body);
-  res.json(await answerAssistant(currentUser(res).business_id, message, history));
+  const user = currentUser(res);
+  const now = localNow();
+  const future = db.prepare(`SELECT 1 FROM appointments WHERE business_id=?
+    AND status IN ('pending','confirmed') AND (date>? OR (date=? AND start_time>?)) LIMIT 1`)
+    .get(user.business_id, now.date, now.date, now.time);
+  const answer = !future
+    ? 'Não encontrei agendamentos futuros ativos para alterar. Confira sua agenda ou peça à cliente para fazer um novo agendamento.'
+    : kind === 'reschedule-request'
+      ? 'Vou te ajudar a pedir uma remarcação. Escolha o agendamento exato; depois você poderá revisar e confirmar o aviso à cliente.'
+      : 'Vou te ajudar a cancelar por imprevisto. Escolha o agendamento exato; depois você poderá revisar e confirmar o aviso à cliente.';
+  const saved = saveAssistantExchange({ businessId: user.business_id, userId: user.id },
+    conversationId, message, answer);
+  res.json({ answer, ...saved });
+});
+app.post('/api/assistant/conversations/:id/action-result', owner, rateLimit(60, 60_000),
+  (req, res) => {
+    const conversationId = z.uuid().parse(req.params.id);
+    const { eventId } = z.object({ eventId: z.uuid() }).parse(req.body);
+    const user = currentUser(res);
+    res.json(saveAssistantActionResult({ businessId: user.business_id, userId: user.id },
+      conversationId, eventId));
+  });
+app.post('/api/assistant', owner, rateLimit(60, 60_000), async (req, res) => {
+  const { message, conversationId } = z.object({
+    message: z.string().trim().min(2).max(1000),
+    conversationId: z.uuid().optional(),
+  }).parse(req.body);
+  const user = currentUser(res);
+  const scope = { businessId: user.business_id, userId: user.id };
+  const history = conversationId ? assistantConversationHistory(scope, conversationId) : [];
+  const reply = await answerAssistant(user.business_id, message, history);
+  const saved = saveAssistantExchange(scope, conversationId, message, reply.answer);
+  res.json({ ...reply, ...saved });
 });
 
 function publicOrigin(req: Request) {
@@ -1152,6 +1207,10 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     field: issue.path.join('.'), message: issue.message,
   })) });
   if (error instanceof ApiError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof AssistantConversationNotFound)
+    return res.status(404).json({ error: error.message });
+  if (error instanceof AssistantActionConflict)
+    return res.status(409).json({ error: error.message });
   if (error instanceof GoogleAuthError) return res.status(error.status).json({ error: error.message });
   if (error instanceof NotificationError) return res.status(error.status).json({ error: error.message });
   if (error instanceof Error && /SQLITE_CONSTRAINT/.test(error.message))
