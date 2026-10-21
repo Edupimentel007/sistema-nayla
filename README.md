@@ -152,7 +152,7 @@ A [Meta cobra mensagens entregues pela Business Platform conforme o destino e a 
 
 Configure `NODE_ENV=production`, `APP_ORIGIN` com a origem pública HTTPS, `WHATSAPP_MODE=disabled` como modo inicial dos novos negócios e um `DATABASE_PATH` persistente. O SQLite atende à instalação local ou a uma instância única com disco persistente. Para operar em múltiplas instâncias ou infraestrutura sem disco persistente, será necessária a migração do banco para um serviço gerenciado. Faça backups regulares do banco e configure credenciais dos provedores somente no ambiente do servidor.
 
-Para testar ou publicar a interface web e a PWA, siga o [guia de implantação na Vercel](DEPLOY_VERCEL.md). Ele mostra as dependências da API, os limites do plano gratuito e uma alternativa experimental sem mensalidade de hospedagem.
+Para testar ou publicar a interface web e a PWA, siga o [guia de implantação na Vercel](DEPLOY_VERCEL.md). Ele mostra as dependências da API, os limites do plano gratuito e uma alternativa experimental sem mensalidade de hospedagem. A [preparação do banco para Turso](database/MIGRATION_TURSO.md) explica o backup e o trabalho necessário antes de executar a API sem VPS.
 
 ## Estrutura
 

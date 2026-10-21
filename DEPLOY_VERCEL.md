@@ -1,8 +1,22 @@
 # Publicar a Nayla na Vercel
 
+## Estado da publicação sem VPS (21/10/2026)
+
+O projeto **ainda não está pronto para publicar todas as funções somente na Vercel**. O arquivo `vercel.mjs` publica a interface e encaminha `/api` a uma API HTTPS externa definida por `NAYLA_API_ORIGIN`. Sem essa origem, o build falha de propósito. Uma página aberta na Vercel sem API persistente não preservaria cadastros, agenda nem pagamentos.
+
+Para eliminar o VPS, estas mudanças precisam ser concluídas e verificadas antes de aceitar clientes reais:
+
+1. **Banco:** converter as consultas síncronas de `better-sqlite3` para um cliente remoto e migrar o arquivo SQLite existente. [Turso Cloud](https://vercel.com/marketplace/tursocloud) mantém o dialeto SQLite e oferece plano gratuito com limites; [as Functions não possuem disco persistente](https://vercel.com/docs/functions/runtimes). Não basta apontar `DATABASE_PATH` para `/tmp`.
+2. **API e pagamentos:** executar o Express como Function/Service, manter as credenciais Mercado Pago só no servidor, validar Webhooks reais e reconciliar cada cobrança com a profissional correta. O link de pagamento manual não fornece isso ao app automaticamente.
+3. **Lembretes:** substituir o trabalhador contínuo por [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs), com execução protegida por `CRON_SECRET` e registros persistentes para evitar duplicidade. A rota `GET /api/internal/reminders` já permite disparar uma varredura autorizada na API atual; só configure o agendamento automático quando o backend e o banco persistente estiverem publicados. No Pro, a frequência pode ser de um minuto; a execução consome recursos de Function.
+4. **Nayla IA:** o código atual só aceita Ollama na mesma máquina da API. A Vercel não oferece, neste plano, um processo Ollama gratuito e permanente com disco persistente. [Daemons](https://vercel.com/daemons) são trabalhadores contínuos cobrados por uso, sem HTTP de entrada nem disco persistente na versão inicial. Manter o chat livre com modelo próprio exige outra solução de computação e um orçamento medido. As respostas calculadas diretamente dos dados podem continuar sem o modelo.
+5. **Conta e cobrança:** conectar um projeto Vercel da sua conta no plano compatível com uso comercial e criar a aplicação Mercado Pago com Access Token de produção e assinatura secreta dos Webhooks. Nunca colocar esses valores no Git ou no app do celular.
+
+O custo fixo inicial do [Vercel Pro](https://vercel.com/docs/plans/pro-plan) é **US$ 20/mês**, com US$ 20 de crédito mensal de infraestrutura que não abate a taxa do plano. Uso além do crédito, banco fora da cota gratuita, computação da IA, domínio e [tarifas por venda do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/getting-started) são custos separados. Não há uma estimativa confiável do total sem carga medida e escolha da computação da IA.
+
 ## Arquitetura necessária
 
-A Vercel entrega somente a interface Vite/PWA. A API Express, o SQLite, o processamento de lembretes e o Ollama precisam rodar em um servidor persistente com HTTPS, disco e backup. A configuração em `vercel.mjs` encaminha `/api/*` para esse servidor e abre as páginas internas da SPA. A origem da API é lida na implantação; não há URL de produção fixa no código.
+Na configuração atual, a Vercel entrega somente a interface Vite/PWA. A API Express, o SQLite, o processamento de lembretes e o Ollama precisam rodar em um servidor persistente com HTTPS, disco e backup. A configuração em `vercel.mjs` encaminha `/api/*` para esse servidor e abre as páginas internas da SPA. A origem da API é lida na implantação; não há URL de produção fixa no código. A migração proposta na seção acima mudará essa arquitetura quando estiver completa.
 
 ## Se o orçamento inicial for zero
 

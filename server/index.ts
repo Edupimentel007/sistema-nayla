@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z, ZodError } from 'zod';
 import { catalog, specialtySchema, specialtyValues } from './catalog.js';
 import { addMinutes, dateAgo, db, fromCents, id, localNow, toCents, validDate } from './db.js';
@@ -22,10 +23,11 @@ import { billingAccessForBusiness, billingRouter, billingWebhookRouter,
 import { assertProductionSecurityConfiguration, browserRequestGuard, securityHeaders } from './security.js';
 import { listInbox, markInboxRead, notifyOfBookingChange,
   notifyOwnerOfBooking, startReminderWorker } from './inbox.js';
+import { handleReminderCron } from './reminderCron.js';
 
 type Row = Record<string, any>;
 type User = Row & { id: string; business_id: string; role: 'owner' | 'client' };
-const app = express();
+export const app = express();
 assertProductionSecurityConfiguration();
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '1');
@@ -1188,6 +1190,11 @@ app.post('/api/webhooks/whatsapp/:key', (req, res) => {
   res.status(200).send('EVENT_RECEIVED');
 });
 
+app.get('/api/internal/reminders', async (req, res) => {
+  const result = await handleReminderCron({ method: req.method,
+    authorization: req.get('authorization') });
+  res.status(result.status).json(result.body);
+});
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
 const distPath = resolve(process.cwd(), 'dist');
 app.use(express.static(distPath));
@@ -1221,6 +1228,13 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Não foi possível concluir a solicitação.' });
 });
 
-const port = Number(process.env.PORT || 3001);
-startReminderWorker();
-app.listen(port, () => console.log(`Nayla API disponível em http://localhost:${port}`));
+// Importing the app must not start an HTTP listener or a background worker.
+// A future Vercel adapter will also need persistent storage before it can
+// serve requests: the current SQLite database is local to this process.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT || 3001);
+  startReminderWorker();
+  app.listen(port, () => console.log(`Nayla API disponível em http://localhost:${port}`));
+}
+
+export default app;

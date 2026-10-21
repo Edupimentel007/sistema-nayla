@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { specialtyValues } from './catalog.js';
 
+// Vercel Functions do not preserve writes to their local filesystem between
+// invocations. Never start this SQLite-backed API there: a successful booking
+// or payment webhook could otherwise disappear on the next invocation.
+if (process.env.VERCEL === '1') {
+  throw new Error('A API Nayla usa SQLite local e nao pode executar em Vercel Functions. Use a API em servidor com disco persistente ou conclua a migracao para banco remoto antes de implantar.');
+}
+
 const defaultPath = resolve(process.cwd(), 'database', 'nayla.sqlite');
 const databasePath = resolve(process.env.DATABASE_PATH || defaultPath);
 mkdirSync(dirname(databasePath), { recursive: true });
