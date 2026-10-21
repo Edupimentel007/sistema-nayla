@@ -1,6 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { db, dateAgo, fromCents, localNow, validDate } from './db.js';
+import type { ExternalAssistantPrivacy } from './assistantPrivacy.js';
 
 // Every query in this module is read-only and receives the authenticated owner's
 // business ID from the server. The model never chooses a tenant or runs SQL.
@@ -322,12 +323,28 @@ const guarded = <T>(read: () => T): T | { error: string } => {
   catch (error) { return { error: error instanceof Error ? error.message : 'Consulta indisponível.' }; }
 };
 
-export function createAssistantDataTools(businessId: string) {
+// Tool results are also sent to the model. With an external provider, keep
+// client identities here and expose only request-local aliases to the model.
+function externalResult(value: unknown, privacy: ExternalAssistantPrivacy,
+  clientArray = false): unknown {
+  if (Array.isArray(value)) return value.map(item => externalResult(item, privacy, clientArray));
+  if (value && typeof value === 'object') return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => {
+      if (key === 'description') return [key, '[descrição omitida para privacidade]'];
+      if (typeof item === 'string' && (key === 'clientName' || key === 'searchedName'
+        || clientArray && key === 'name')) return [key, privacy.aliasClient(item)];
+      return [key, externalResult(item, privacy, key === 'clients')];
+    }));
+  return typeof value === 'string' ? privacy.redactText(value) : value;
+}
+
+export function createAssistantDataTools(businessId: string, privacy?: ExternalAssistantPrivacy) {
+  const protect = <T>(value: T): T => privacy ? externalResult(value, privacy) as T : value;
   return {
     consultar_financeiro: tool({
       description: 'Consulta entradas, despesas, saldo e evolução real dos lançamentos do Financeiro. Use para faturamento em qualquer período, inclusive datas específicas. Não calcula lucro líquido.',
       inputSchema: rangeInput,
-      execute: input => guarded(() => getAssistantFinance(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantFinance(businessId, input))),
     }),
     consultar_lancamentos: tool({
       description: 'Lista os lançamentos recentes de entrada ou despesa em um período, com data, descrição, categoria e valor. Use para localizar lançamentos específicos.',
@@ -335,7 +352,7 @@ export function createAssistantDataTools(businessId: string) {
         type: z.enum(['all', 'income', 'expense']).optional(),
         limit: z.number().int().min(1).max(30).optional(),
       }),
-      execute: input => guarded(() => getAssistantFinanceEntries(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantFinanceEntries(businessId, input))),
     }),
     consultar_agenda: tool({
       description: 'Consulta agendamentos com cliente, serviço, data, hora e status. Use today para clientes do dia; next365 com limit=1 para a próxima cliente futura. Períodos next7/next30/next90/next365 excluem cancelamentos e faltas por padrão. Pode filtrar por nome e status.',
@@ -344,12 +361,16 @@ export function createAssistantDataTools(businessId: string) {
         status: z.enum(['all','scheduled','pending','confirmed','completed','cancelled','no_show']).optional(),
         limit: z.number().int().min(1).max(40).optional(),
       }),
-      execute: input => guarded(() => getAssistantSchedule(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantSchedule(businessId, {
+        ...input, clientName: input.clientName && privacy
+          ? privacy.originalClient(input.clientName) : input.clientName,
+      }))),
     }),
     consultar_cliente: tool({
       description: 'Procura cliente pelo nome, inclusive sem acento, e retorna histórico resumido. Se houver mais de uma cliente com nome parecido, peça para a profissional especificar. Não retorna telefone, CPF ou e-mail.',
       inputSchema: z.object({ clientName: z.string().min(2).max(80) }),
-      execute: input => guarded(() => getAssistantClient(businessId, input.clientName)),
+      execute: input => guarded(() => protect(getAssistantClient(businessId,
+        privacy ? privacy.originalClient(input.clientName) : input.clientName))),
     }),
     consultar_alteracoes: tool({
       description: 'Consulta eventos de cancelamento e remarcação, distinguindo ações da cliente e da profissional, no período informado. Motivos em texto livre não são expostos.',
@@ -358,22 +379,22 @@ export function createAssistantDataTools(businessId: string) {
         kind: z.enum(['all','cancelled','rescheduled','reschedule_requested']).optional(),
         limit: z.number().int().min(1).max(30).optional(),
       }),
-      execute: input => guarded(() => getAssistantEvents(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantEvents(businessId, input))),
     }),
     consultar_servicos: tool({
       description: 'Consulta serviços da profissional e desempenho por período: reservas, atendimentos concluídos, cancelamentos, faltas, preço atual e valor dos serviços concluídos.',
       inputSchema: rangeInput,
-      execute: input => guarded(() => getAssistantServices(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantServices(businessId, input))),
     }),
     consultar_clientes_sem_retorno: tool({
       description: 'Lista clientes cujo último atendimento concluído foi há 7 a 365 dias e que não possuem agendamento futuro ativo.',
       inputSchema: z.object({ days: z.number().int().min(7).max(365), limit: z.number().int().min(1).max(30).optional() }),
-      execute: input => guarded(() => getAssistantInactiveClients(businessId, input.days, input.limit)),
+      execute: input => guarded(() => protect(getAssistantInactiveClients(businessId, input.days, input.limit))),
     }),
     consultar_clientes_frequentes: tool({
       description: 'Mostra as clientes com mais atendimentos concluídos e o valor dos serviços concluídos no período.',
       inputSchema: rangeInput,
-      execute: input => guarded(() => getAssistantTopClients(businessId, input)),
+      execute: input => guarded(() => protect(getAssistantTopClients(businessId, input))),
     }),
   };
 }

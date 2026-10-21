@@ -31,7 +31,7 @@ export type AssistantReply = {
   answer: string; mode: 'ai' | 'instant' | 'local' | 'timeout'; conversationId: string
   userMessageId: string; assistantMessageId: string
 }
-export type AssistantStatus = { aiAvailable: boolean; provider: 'ollama'; model: string; reason?: string }
+export type AssistantStatus = { aiAvailable: boolean; provider: 'ollama' | 'groq'; model: string; reason?: string }
 export type AssistantConversation = {
   id: string; title: string; createdAt: string; updatedAt: string
   messageCount: number; preview: string

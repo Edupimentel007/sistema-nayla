@@ -28,6 +28,7 @@
 .assistant-page .chat-top-info { flex: 1; min-width: 0; }
 .assistant-page .chat-top-info small { line-height: 1.4; }
 .assistant-page .online-dot.offline { background: var(--muted); }
+.assistant-provider-note { margin: 0; padding: 9px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font-size: 11px; line-height: 1.5; }
 .assistant-page .chat-clear {
   display: inline-flex;
   align-items: center;

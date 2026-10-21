@@ -30,8 +30,13 @@ const prompts = [
 ]
 
 function modelStatusText(status: AssistantStatus | null) {
-  if (!status) return 'Verificando a IA local'
-  if (status.aiAvailable) return 'Conversa livre disponível'
+  if (!status) return 'Verificando a conversa livre'
+  if (status.aiAvailable) return status.provider === 'groq'
+    ? 'Conversa livre online disponível' : 'Conversa livre disponível'
+  if (status.provider === 'groq') {
+    if (status.reason === 'not_configured') return 'IA online ainda não ativada · dicas e consultas disponíveis'
+    return 'IA online temporariamente indisponível · dicas e consultas disponíveis'
+  }
   if (status.reason === 'model_missing') return 'IA local ainda não ativada · dicas e consultas disponíveis'
   if (status.reason === 'server_offline') return 'IA local temporariamente indisponível · dicas disponíveis'
   if (status.reason === 'request_failed') return 'IA local não respondeu · dicas e consultas disponíveis'
@@ -167,7 +172,7 @@ export function AssistantPage() {
     void api.assistantStatus().then(status => {
       if (active) setModelStatus(status)
     }).catch(() => {
-      if (active) setModelStatus({ aiAvailable: false, provider: 'ollama', model: 'local' })
+      if (active) setModelStatus({ aiAvailable: false, provider: 'ollama', model: 'local', reason: 'request_failed' })
     })
     return () => { active = false }
   }, [])
@@ -276,7 +281,7 @@ export function AssistantPage() {
       } else {
         const response = await api.assistant(text, conversationId || undefined)
         if (response.mode === 'ai') setModelStatus(current => ({
-          provider: 'ollama', model: current?.model || 'local', aiAvailable: true,
+          provider: current?.provider || 'ollama', model: current?.model || 'local', aiAvailable: true,
         }))
         if (response.mode === 'local') void api.assistantStatus().then(setModelStatus).catch(() => {
           // The answer remains useful even when model status cannot be refreshed.
@@ -377,16 +382,20 @@ export function AssistantPage() {
           </small>
         </div>
       </div>
+      {modelStatus?.provider === 'groq' ? <p className="assistant-provider-note">
+        No chat online, sua pergunta e os dados necessários à resposta são enviados à IA externa.
+        Evite escrever CPF, telefone, dados bancários ou informações de cartão.
+      </p> : null}
       <div className="chat-messages">
         {messages.length === 0
           ? <div className="chat-empty">
             <span className="chat-empty-icon"><Sparkles size={29}/></span>
             <h2>Oi, {session?.user.name.split(' ')[0]}! Como posso ajudar?</h2>
             <p>{modelStatus === null
-              ? 'Escolha uma sugestão enquanto verifico a IA local.'
+              ? 'Escolha uma sugestão enquanto verifico a conversa livre.'
               : modelStatus.aiAvailable
                 ? 'Converse sobre seu negócio e sua área. Quando consultar fontes públicas, a Nayla mostra os links na resposta.'
-                : 'Posso analisar seus dados, explicar o app e buscar fontes públicas para dicas da sua área. A conversa livre depende da IA local.'}</p>
+                : 'Posso analisar seus dados, explicar o app e buscar fontes públicas para dicas da sua área. A conversa livre ainda não está disponível.'}</p>
             <div className="prompt-grid">
               {prompts.map(prompt => <button type="button" key={prompt.text} disabled={busy || historyLoading}
                 onClick={() => void send(prompt.text)}>{prompt.icon}<span>{prompt.text}</span></button>)}
