@@ -229,6 +229,8 @@ export function mountGoogleAuth(app: Express, options: Options) {
       ? common.extend({ ownerName: z.string().trim().min(2).max(100),
           businessName: z.string().trim().min(2).max(100),
           slug: z.string().min(3).max(45).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+          phone: z.string().transform(value => value.replace(/\D/g, ''))
+            .refine(value => /^\d{10,13}$/.test(value), 'Informe um telefone válido.'),
           specialties: z.array(specialtySchema).min(1).max(specialtyValues.length),
           selectedServices: z.array(z.string().min(1).max(160)).max(catalog.length),
           customServices: z.array(customService).max(10).default([]) }).parse(req.body)
@@ -262,12 +264,12 @@ export function mountGoogleAuth(app: Express, options: Options) {
         if (db.prepare("SELECT 1 FROM users WHERE role='owner' AND email=?").get(row.email))
           throw new GoogleAuthError(409, 'Este e-mail já tem conta. Conecte-a com sua senha.');
         const businessId = id();
-        db.prepare('INSERT INTO businesses(id,slug,name,specialties) VALUES(?,?,?,?)')
-          .run(businessId, ownerDetails.slug, ownerDetails.businessName,
+        db.prepare('INSERT INTO businesses(id,slug,name,phone,specialties) VALUES(?,?,?,?,?)')
+          .run(businessId, ownerDetails.slug, ownerDetails.businessName, ownerDetails.phone,
             JSON.stringify([...new Set(ownerDetails.specialties)]));
-        db.prepare(`INSERT INTO users(id,business_id,role,name,email,password_hash,google_subject)
-          VALUES(?,?,'owner',?,?,?,?)`).run(userId, businessId, ownerDetails.ownerName,
-            row.email, passwordHash, row.google_subject);
+        db.prepare(`INSERT INTO users(id,business_id,role,name,email,phone,password_hash,google_subject)
+          VALUES(?,?,'owner',?,?,?,?,?)`).run(userId, businessId, ownerDetails.ownerName,
+            row.email, ownerDetails.phone, passwordHash, row.google_subject);
         const selectedTemplates = new Set(ownerDetails.selectedServices);
         const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents,active)
           VALUES(?,?,?,?,?,?,?)`);

@@ -18,8 +18,9 @@ import { assistantConversationHistory, AssistantActionConflict, AssistantConvers
 import { businessLogoUrl, deleteBusinessLogo, parseLogo, publicBusinessLogo, uploadBusinessLogo } from './logo.js';
 import { analyticsRouter } from './analytics.js';
 import { GoogleAuthError, mountGoogleAuth } from './googleAuth.js';
-import { billingAccessForBusiness, billingRouter, billingWebhookRouter,
-  requireBillingAccess } from './billing.js';
+import { adminRouter, assertAccessConfiguration, isSuperAdmin, ManualAccessError, manualAccessForBusiness,
+  manualAccessState,
+  manualAccessRouter, recordOwnerDevice, requireManualAccess } from './manualAccess.js';
 import { assertProductionSecurityConfiguration, browserRequestGuard, securityHeaders } from './security.js';
 import { listInbox, markInboxRead, notifyOfBookingChange,
   notifyOwnerOfBooking, startReminderWorker } from './inbox.js';
@@ -29,6 +30,7 @@ type Row = Record<string, any>;
 type User = Row & { id: string; business_id: string; role: 'owner' | 'client' };
 export const app = express();
 assertProductionSecurityConfiguration();
+assertAccessConfiguration();
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === '1');
 app.use(securityHeaders);
@@ -55,7 +57,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     if (!allowed) return res.status(403).end();
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Nayla-App');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Nayla-App,X-Nayla-Device');
     res.setHeader('Access-Control-Max-Age', '600');
     return res.status(204).end();
   }
@@ -101,6 +103,7 @@ function createSession(req: Request, res: Response, user: User, remember = false
       ...(remember ? { maxAge: lifetime } : {}), path: '/',
     });
   }
+  if (user.role === 'owner') recordOwnerDevice(req, res, user.business_id, nativeRequest(req));
   return nativeRequest(req) ? { sessionToken: token } : {};
 }
 function getSessionUser(req: Request, role: 'owner' | 'client'): User | undefined {
@@ -108,7 +111,7 @@ function getSessionUser(req: Request, role: 'owner' | 'client'): User | undefine
   const token = authorization ? /^Bearer ([a-f0-9]{64})$/.exec(authorization)?.[1] :
     req.cookies?.[cookieName(role)];
   if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
-  return db.prepare(`SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id
+  return db.prepare(`SELECT u.*,s.created_at AS session_created_at FROM sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token_hash=? AND s.expires_at>? AND u.role=?`)
     .get(createHash('sha256').update(token).digest('hex'), Date.now(), role) as User | undefined;
 }
@@ -131,9 +134,16 @@ function requireRole(role: 'owner' | 'client') {
 }
 const authenticatedOwner = requireRole('owner');
 const owner = (req: Request, res: Response, next: NextFunction) =>
-  authenticatedOwner(req, res, () => requireBillingAccess(req, res, next));
-app.use('/api/billing/webhooks', billingWebhookRouter);
-app.use('/api/billing', authenticatedOwner, billingRouter);
+  authenticatedOwner(req, res, () => requireManualAccess(req, res, next));
+const ownerBranding = (req: Request, res: Response, next: NextFunction) =>
+  authenticatedOwner(req, res, () => {
+    const status = manualAccessState(currentUser(res).business_id).manualAccessStatus;
+    if (status === 'blocked' || status === 'expired')
+      return res.status(402).json({error:'Seu acesso precisa ser renovado para alterar a marca.'});
+    next();
+  });
+app.use('/api/billing', authenticatedOwner, manualAccessRouter);
+app.use('/api/admin', authenticatedOwner, rateLimit(120), adminRouter);
 app.use('/api/analytics', owner, analyticsRouter);
 app.use('/api/auth/google', rateLimit(20));
 function currentUser(res: Response): User { return res.locals.user as User; }
@@ -209,7 +219,10 @@ app.get('/api/catalog', (_req, res) => res.json({ services: catalog }));
 app.post('/api/auth/register', rateLimit(10), async (req, res) => {
   const input = z.object({
     ownerName: z.string().trim().min(2).max(100), businessName: z.string().trim().min(2).max(100),
-    slug, email, password, phone: z.string().optional(), remember: z.boolean().default(false),
+    slug, email, password,
+    phone: z.string().transform(value => value.replace(/\D/g, ''))
+      .refine(value => /^\d{10,13}$/.test(value), 'Informe um telefone válido.'),
+    remember: z.boolean().default(false),
     specialties: z.array(specialty).min(1).max(specialtyValues.length),
     selectedServices: z.array(z.string().min(1).max(160)).max(catalog.length),
     customServices: z.array(customService).max(10).default([]),
@@ -236,9 +249,9 @@ app.post('/api/auth/register', rateLimit(10), async (req, res) => {
   const businessId = id(), userId = id();
   db.transaction(() => {
     db.prepare('INSERT INTO businesses(id,slug,name,phone,specialties) VALUES(?,?,?,?,?)')
-      .run(businessId, input.slug, input.businessName, input.phone || null, JSON.stringify([...new Set(input.specialties)]));
+      .run(businessId, input.slug, input.businessName, input.phone, JSON.stringify([...new Set(input.specialties)]));
     db.prepare(`INSERT INTO users(id,business_id,role,name,email,phone,password_hash)
-      VALUES(?,?,'owner',?,?,?,?)`).run(userId, businessId, input.ownerName, input.email, input.phone || null, hash);
+      VALUES(?,?,'owner',?,?,?,?)`).run(userId, businessId, input.ownerName, input.email, input.phone, hash);
     const addService = db.prepare(`INSERT INTO services(id,business_id,name,category,duration_minutes,price_cents,active)
       VALUES(?,?,?,?,?,?,?)`);
     for (const item of catalog.filter(item => input.specialties.includes(item.category)))
@@ -274,6 +287,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.delete('/api/auth/account', authenticatedOwner, rateLimit(10), async (req, res) => {
   const { password: suppliedPassword } = z.object({ password: z.string().min(1).max(100) }).parse(req.body);
   const user = currentUser(res);
+  if (isSuperAdmin(user.id)) throw new ApiError(409, 'Remova a função de superadministrador antes de excluir esta conta.');
   if (!await bcrypt.compare(suppliedPassword, user.password_hash))
     throw new ApiError(401, 'Senha incorreta.');
   db.transaction(() => {
@@ -290,8 +304,8 @@ app.delete('/api/auth/account', authenticatedOwner, rateLimit(10), async (req, r
 });
 
 app.get('/api/business', owner, (_req, res) => res.json(businessById(currentUser(res).business_id)));
-app.post('/api/business/logo', authenticatedOwner, rateLimit(10), parseLogo, uploadBusinessLogo);
-app.delete('/api/business/logo', authenticatedOwner, deleteBusinessLogo);
+app.post('/api/business/logo', ownerBranding, rateLimit(10), parseLogo, uploadBusinessLogo);
+app.delete('/api/business/logo', ownerBranding, deleteBusinessLogo);
 app.get('/api/public/:slug/logo', publicBusinessLogo);
 app.patch('/api/business', owner, (req, res) => {
   const input = z.object({
@@ -571,7 +585,7 @@ app.get('/api/public/:slug', (req, res) => {
 });
 app.get('/api/public/:slug/availability', (req, res) => {
   const business = publicBusiness(String(req.params.slug));
-  if (!billingAccessForBusiness(business.id)) return res.json({ slots: [] });
+  if (!manualAccessForBusiness(business.id)) return res.json({ slots: [] });
   const input = z.object({ serviceId: z.uuid(), date,
     excludeAppointmentId: z.uuid().optional() }).parse(req.query);
   if (input.excludeAppointmentId) {
@@ -595,7 +609,7 @@ const bookingInput = z.object({ serviceId: z.uuid(), date, time,
   remember: z.boolean().default(false), client: clientDetails.optional() });
 app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
   const business = publicBusiness(String(req.params.slug));
-  if (!billingAccessForBusiness(business.id))
+  if (!manualAccessForBusiness(business.id))
     throw new ApiError(503, 'Este espaço está temporariamente indisponível para novos agendamentos.');
   const input = bookingInput.parse(req.body);
   const service = serviceForBusiness(business.id, input.serviceId);
@@ -622,6 +636,8 @@ app.post('/api/public/:slug/bookings', rateLimit(20), async (req, res) => {
   }
   const appointmentId = id();
   const result = db.transaction(() => {
+    if (!manualAccessForBusiness(business.id))
+      throw new ApiError(503, 'Este espaço está temporariamente indisponível para novos agendamentos.');
     const end = bookingIsAllowed(business, service, input.date, input.time);
     let user = bookingClient;
     if (user && input.client) {
@@ -822,6 +838,8 @@ async function rescheduleAppointment(req: Request, res: Response, actor: ChangeA
   const input = rescheduleInput.parse(req.body);
   const user = actor === 'client' ? clientForRequest(req, res) : currentUser(res);
   const businessId = user.business_id;
+  if (actor === 'client' && !manualAccessForBusiness(businessId))
+    throw new ApiError(503, 'Este espaço não aceita remarcações no momento. Você ainda pode cancelar seu agendamento.');
   const changed = db.transaction(() => {
     const before = mutableAppointment(businessId, String(req.params.id),
       actor === 'client' ? user.id : undefined);
@@ -870,7 +888,8 @@ async function cancelAppointment(req: Request, res: Response,
       date: before.date, time: before.start_time });
     return { before, after, eventId };
   }).immediate();
-  const notificationStatus = await notifyAppointmentChange(kind, changed.before, changed.after, reason);
+  const notificationStatus = manualAccessForBusiness(user.business_id)
+    ? await notifyAppointmentChange(kind, changed.before, changed.after, reason) : null;
   res.json({ ...appointmentDto(changed.after), notificationStatus, eventId: changed.eventId });
 }
 async function cancelClientAppointment(req: Request, res: Response) {
@@ -1219,6 +1238,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof AssistantActionConflict)
     return res.status(409).json({ error: error.message });
   if (error instanceof GoogleAuthError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof ManualAccessError) return res.status(error.status).json({ error: error.message });
   if (error instanceof NotificationError) return res.status(error.status).json({ error: error.message });
   if (error instanceof Error && /SQLITE_CONSTRAINT/.test(error.message))
     return res.status(409).json({ error: 'Este registro já existe ou está em uso.' });

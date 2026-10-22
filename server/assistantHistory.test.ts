@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import Database from 'better-sqlite3';
 import { catalog } from './catalog.js';
+import { activateFixtureOwner, fixtureOwnerPhone } from './testAccessFixture.js';
 
 let api: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -23,13 +24,18 @@ async function freePort() {
 }
 
 async function request(path: string, options: RequestInit = {}, cookie?: string) {
+  const body = fixtureOwnerPhone(path, options.body);
   const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
+    ...options, body,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(cookie ? { Cookie: cookie } : {}), ...options.headers },
   });
+  const responseBody = response.status === 204 ? {} as Record<string,any>
+    : await response.json() as Record<string,any>;
+  if (path === '/api/auth/register' && response.status === 201 && responseBody?.business?.id)
+    activateFixtureOwner(directory, responseBody.business.id);
   return { status: response.status,
-    body: response.status === 204 ? {} as Record<string, any> : await response.json() as Record<string, any>,
+    body: responseBody,
     cookie: response.headers.get('set-cookie')?.split(';')[0] };
 }
 

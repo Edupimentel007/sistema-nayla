@@ -17,14 +17,16 @@ Aplicativo de agenda, CRM e financeiro para profissionais de beleza e estética 
 - Atalho flutuante da Nayla nas telas móveis do app da profissional, com acesso direto ao chat e retorno à tela anterior.
 - Confirmações de agendamento com prévia local, histórico de status e integração opcional à WhatsApp Cloud API da Meta.
 - Interface em português, responsiva, com temas claro e escuro.
+- Painel reservado ao super admin para aprovar 30 dias de avaliação uma única vez, acompanhar profissionais e contatos, prorrogar ou bloquear acessos. A cobrança e a conferência do pagamento ficam fora do aplicativo.
 
 ## Rodar localmente
 
 Requer Node.js 20.19+ (24 recomendado). Na pasta do projeto:
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm.cmd install
+npm.cmd run access:secret
 npm.cmd run dev
 ```
 
@@ -37,7 +39,8 @@ Links locais:
 | Início | `http://localhost:3001/` |
 | Cadastro da empreendedora | `http://localhost:3001/cadastro` |
 | Login da empreendedora | `http://localhost:3001/entrar` |
-| Apresentação e planos | `http://localhost:3001/app/boas-vindas` |
+| Apresentação e estado do acesso | `http://localhost:3001/app/boas-vindas` |
+| Super admin | `http://localhost:3001/superadmin` |
 | Painel | `http://localhost:3001/app` |
 | Financeiro | `http://localhost:3001/app/financeiro` |
 | Assistente Nayla | `http://localhost:3001/app/assistente` |
@@ -80,7 +83,7 @@ A Nayla permite dois modos de conversa livre: **Groq Free pela API** ou **Ollama
 #### Groq Free, para testes online sem hospedar o modelo
 
 1. Crie um projeto na [Groq Console](https://console.groq.com/) e uma chave em [API Keys](https://console.groq.com/keys), mantendo a conta no **plano Free**. O upgrade para o plano pago exige uma ação na conta; quando a cota Free acaba, a API retorna `429`. Os limites publicados para `openai/gpt-oss-120b` são 30 pedidos/minuto, 1.000/dia, 8.000 tokens/minuto e 200.000 tokens/dia **compartilhados por todas as profissionais da sua organização**; confira os limites efetivos no painel. [Limites](https://console.groq.com/docs/rate-limits) · [Cobrança](https://console.groq.com/docs/billing-faqs).
-2. No backend, configure `AI_PROVIDER=groq`, `GROQ_MODEL=openai/gpt-oss-120b` e `GROQ_API_KEY` como **segredo**. Não coloque a chave em `VITE_*`, no Git, no app instalado ou neste chat. Ative [Zero Data Retention](https://console.groq.com/docs/your-data) no painel da Groq e mantenha separadas as chaves de teste e produção.
+2. No backend local, execute `npm.cmd run groq:setup`. O assistente pede a chave sem mostrá-la, confere o acesso ao modelo e grava `AI_PROVIDER=groq`, `GROQ_MODEL=openai/gpt-oss-120b` e `GROQ_API_KEY` apenas no `.env` ignorado pelo Git. Confirme depois com `npm.cmd run groq:check`. Em hospedagem, configure as mesmas variáveis como segredos do servidor. Não coloque a chave em `VITE_*`, no Git, no app instalado ou neste chat. Ative [Zero Data Retention](https://console.groq.com/docs/your-data) no painel da Groq e mantenha separadas as chaves de teste e produção.
 3. Teste o status da assistente e perguntas abertas com uma conta profissional de teste. A Nayla limita, por padrão, o chat hospedado a 20 chamadas por profissional por dia e 700 chamadas globais por dia UTC. Ajuste `NAYLA_GROQ_DAILY_LIMIT` (máximo 100) e `NAYLA_GROQ_GLOBAL_DAILY_LIMIT` (máximo 900) no backend se necessário. Essas cotas contam pedidos, não tokens; os limites reais da Groq podem encerrar o uso antes. Ao atingir a cota, as respostas locais de agenda, financeiro e ajuda continuam disponíveis; o chat livre pode ficar temporariamente indisponível. O modelo é rápido, mas a velocidade anunciada não garante cada resposta em menos de 30 segundos. Não ative a busca integrada `browser_search` da Groq sem confirmar antes seu preço; a Nayla já faz uma pesquisa pública separada para dicas.
 
 A Groq declara que não usa entradas e saídas para treinar modelos sem autorização, mas poderá reter dados temporariamente em casos limitados se Zero Data Retention não estiver habilitado. A Nayla deve enviar somente o necessário para a resposta. [Tratamento de dados](https://console.groq.com/docs/your-data) · [Termos](https://console.groq.com/docs/legal/services-agreement). A cota Free serve para começar os testes; ela não garante capacidade para todas as profissionais quando a Nayla crescer.
@@ -107,23 +110,17 @@ O cadastro com e-mail e senha está disponível para profissionais e clientes. A
 
 Para ativar o botão **Continuar com Google**, crie no [Google Cloud Console](https://console.cloud.google.com/apis/credentials) um cliente OAuth 2.0 do tipo **Aplicativo da Web** e configure no `.env` do servidor `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. Cadastre como URI de redirecionamento exatamente `APP_ORIGIN/api/auth/google/callback`. `APP_ORIGIN` pode ser `http://localhost:3001` para testes no próprio computador; em produção deve ser a origem pública HTTPS da Nayla. Não coloque o segredo em `VITE_` nem no app instalado. Sem as credenciais, o botão fica oculto e o acesso com senha segue funcionando.
 
-O Google retorna à API, que valida estado, PKCE, assinatura, emissor, público, validade e nonce do token. O vínculo usa o identificador estável da conta Google. Se um e-mail já tem conta Nayla, a pessoa confirma a senha existente antes de conectar o Google. No primeiro acesso da profissional, ela escolhe nome do espaço, link, áreas e serviços oferecidos e uma senha de recuperação. No primeiro acesso da cliente, ela informa CPF, telefone e senha no espaço daquela profissional. Uma conta de cliente não dá acesso à agenda de outra profissional.
+O Google retorna à API, que valida estado, PKCE, assinatura, emissor, público, validade e nonce do token. O vínculo usa o identificador estável da conta Google. Se um e-mail já tem conta Nayla, a pessoa confirma a senha existente antes de conectar o Google. No primeiro acesso da profissional, ela informa telefone e escolhe nome do espaço, link, áreas e serviços oferecidos e uma senha de recuperação. No primeiro acesso da cliente, ela informa CPF, telefone e senha no espaço daquela profissional. Uma conta de cliente não dá acesso à agenda de outra profissional.
 
 Nos aplicativos Android e iOS, a autenticação abre o navegador seguro do sistema e retorna pelo link `com.edupimentel.nayla://auth`; o código de uso único só pode ser trocado pela instância do app que iniciou a operação. O retorno requer a API HTTPS configurada em `VITE_API_ORIGIN`, a sincronização Capacitor e teste real em cada plataforma. O cliente OAuth do Google continua sendo do tipo **Aplicativo da Web**, pois o redirecionamento registrado aponta para a API HTTPS.
 
-### Planos e pagamentos Mercado Pago
+### Avaliação e liberação manual de acesso
 
-Siga o [passo a passo de configuração do Mercado Pago](MERCADO_PAGO_SETUP.md) para ligar sua conta recebedora sem expor tokens ou dados bancários.
+A profissional se cadastra sem cartão e vê a apresentação do aplicativo. O cadastro começa **aguardando aprovação**. Somente o super admin pode liberar **30 dias de avaliação**, uma única vez para a identidade cadastrada. Depois do prazo, o super admin confere a cobrança fora da Nayla e prorroga ou bloqueia o acesso no painel. O aplicativo não coleta cartão, gera checkout, recebe Pix nem verifica automaticamente pagamentos. Veja o [guia de cobrança externa](MERCADO_PAGO_SETUP.md) se quiser usar um link do Mercado Pago fora da Nayla.
 
-No primeiro acesso, a profissional conhece os recursos e vê os planos **mensal de R$ 49,90** e **anual de até 12 cobranças mensais de R$ 35**. Depois do teste grátis, o cartão usa a [API de Assinaturas do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/overview): o mensal cobra **R$ 49,90 automaticamente a cada mês até cancelar**; o anual faz até **12 cobranças mensais automáticas de R$ 35**, somando R$ 420 somente se todas ocorrerem. Não é parcelamento de uma compra única na fatura. Cada pagamento aprovado libera somente o período correspondente à fatura. A profissional pode cancelar próximas cobranças na tela de planos; conserva o acesso até o fim do período já pago. O cartão é informado apenas no ambiente do Mercado Pago; a Nayla não recebe número nem CVV.
+Para preparar o super admin, crie primeiro uma conta de profissional pelo cadastro normal. No computador do servidor, execute `npm.cmd run admin:promote -- seu-email@exemplo.com`; o comando pede a senha da conta em entrada oculta e a confirmação da promoção. A promoção não altera a senha. Depois, entre novamente e abra `/superadmin`. O painel lista profissionais, telefone, e-mail, estado e vencimento do acesso, com ações para liberar o teste, prorrogar e bloquear. Ações de administração exigem login recente e ficam registradas em auditoria. Execute `npm.cmd run access:secret` uma vez para gerar `ACCESS_IDENTITY_SECRET` no `.env` local; na hospedagem, configure o mesmo segredo estável apenas no servidor e mantenha um backup seguro. Trocá-lo faz perder a comparação com identidades de avaliações anteriores.
 
-O **Pix é avulso**: R$ 49,90 por um mês ou R$ 420 por um ano, com QR dinâmico e código copia e cola. O Pix não cria assinatura nem renovação automática. A interface explica o valor e a recorrência antes de abrir o checkout.
-
-Para conectar a conta recebedora, [crie uma aplicação Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/create-application), obtenha o **Access Token** de teste e depois o de produção, e configure a URL pública `https://SEU-DOMINIO/api/billing/webhooks/mercado-pago` para os eventos de pagamento e assinatura disponibilizados na sua aplicação. Coloque `MERCADO_PAGO_ACCESS_TOKEN` e `MERCADO_PAGO_WEBHOOK_SECRET` somente nas variáveis protegidas do servidor. Configure o banco/recebimento dentro da conta Mercado Pago, nunca no código nem no chat. `APP_ORIGIN` deve ser a origem pública HTTPS da Nayla. O backend cria os modelos mensal e anual no Mercado Pago, valida os valores e associa cada assinatura à profissional. Acesso pago é concedido apenas após consultar uma fatura e seu pagamento aprovado diretamente na API; status `authorized` e retorno do navegador não bastam. A página de Assinaturas do Mercado Pago traz orientações conflitantes sobre como habilitar os tópicos de Webhook; antes de cobrança real, confirme no painel/suporte o recebimento e a assinatura dos eventos na sua aplicação e realize uma compra controlada. O app também concilia faturas ao consultar o estado da assinatura. Veja [Webhooks de Assinaturas](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/additional-content/your-integrations/notifications/webhooks) e o [guia de configuração](MERCADO_PAGO_SETUP.md).
-
-**Primeiro mês grátis:** a profissional pode iniciar **30 dias de teste sem cartão** na tela de boas-vindas. O prazo começa ao tocar em **Começar meus 30 dias grátis**, é registrado no servidor e não pode ser reiniciado. O teste não gera cobrança automática nem permite antecipar uma cobrança pelo checkout. Após o prazo, ela decide se quer contratar um plano. Acesso ao painel e ao link de agendamento é suspenso ao fim do teste até a confirmação de um pagamento. No ambiente local sem credenciais de pagamento, também existe acesso de demonstração, separado do prazo comercial.
-
-Os pacotes Android e iOS mostram o estado da conta, mas **não oferecem checkout Mercado Pago dentro do app**. Para uma assinatura de recursos digitais, [Google Play](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en) e [App Store](https://developer.apple.com/app-store/review/guidelines/) têm regras próprias de cobrança e links externos. A compra pelo Mercado Pago fica na versão web; antes de enviar às lojas, confirme o modelo de distribuição e as exigências atuais de cada plataforma.
+O bloqueio por conta e por identificador de instalação reduz tentativas simples de repetir a avaliação, mas não identifica um aparelho com certeza: limpar cookies, reinstalar o app ou trocar dados de cadastro pode mudar esse identificador. Por isso a concessão fica sob decisão do super admin. Se já houver assinaturas antigas no Mercado Pago, elas devem ser canceladas separadamente na conta Mercado Pago; removê-las do app não encerra cobranças externas.
 
 ### Confirmação por WhatsApp
 

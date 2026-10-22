@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { catalog as serviceTemplates } from './catalog.js';
+import { activateFixtureOwner, fixtureOwnerPhone } from './testAccessFixture.js';
 
 const selectedServices = (category: string) => serviceTemplates
   .filter(item => item.category === category).map(item => item.id);
@@ -42,12 +43,15 @@ function bookingDay() {
 }
 
 async function request(path: string, options: RequestInit = {}, cookie?: string) {
+  const body = fixtureOwnerPhone(path, options.body);
   const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
+    ...options, body,
     headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...options.headers },
   });
-  const body = response.status === 204 ? null : await response.json();
-  return { status: response.status, body: body as any,
+  const resultBody = response.status === 204 ? null : await response.json();
+  if (path === '/api/auth/register' && response.status === 201 && resultBody?.business?.id)
+    activateFixtureOwner(tempDirectory, resultBody.business.id);
+  return { status: response.status, body: resultBody as any,
     cookie: response.headers.get('set-cookie')?.split(';')[0] };
 }
 

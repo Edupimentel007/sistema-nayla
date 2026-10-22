@@ -43,15 +43,20 @@ export function OwnerLoginPage() {
   const [pending, setPending] = useState<GooglePending | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const destination = (location.state as { from?: string } | null)?.from || '/app'
+  const requestedDestination = (location.state as { from?: string } | null)?.from
+  const [destination] = useState(() => requestedDestination === '/superadmin' ||
+    (new URLSearchParams(location.search).has('google_ticket') &&
+      sessionStorage.getItem('nayla-owner-login-return') === '/superadmin') ? '/superadmin' : '/app')
   const applyGoogle = (result: GoogleCompletion, ticket = '') => {
-    if ('user' in result) { clearGoogleAppNonce(); setSession(result); navigate('/app', { replace: true }); return }
+    if ('user' in result) { clearGoogleAppNonce(); sessionStorage.removeItem('nayla-owner-login-return'); setSession(result); navigate(destination, { replace: true }); return }
     const next = { ticket: ticket || result.googleTicket || '', email: result.email,
       name: result.name, passwordLinkRequired: result.passwordLinkRequired }
     if (result.registrationRequired) navigate('/cadastro', { state: { google: next }, replace: true })
     else { setPending(next); setEmail(next.email) }
   }
   useEffect(() => {
+    if (requestedDestination === '/superadmin') sessionStorage.setItem('nayla-owner-login-return', '/superadmin')
+    else if (!new URLSearchParams(location.search).has('google_ticket')) sessionStorage.removeItem('nayla-owner-login-return')
     const ticket = readGoogleTicketFromUrl()
     const googleError = readGoogleErrorFromUrl()
     if (googleError) setError(googleError)
@@ -70,7 +75,7 @@ export function OwnerLoginPage() {
       const session = pending
         ? await api.googleLink('owner', pending.ticket, password, undefined, currentGoogleAppNonce())
         : await api.login(email.trim(), password, remember)
-      clearGoogleAppNonce(); setSession(session); navigate(destination, { replace: true })
+      clearGoogleAppNonce(); sessionStorage.removeItem('nayla-owner-login-return'); setSession(session); navigate(destination, { replace: true })
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível entrar.') }
     finally { setBusy(false) }
   }
@@ -104,6 +109,7 @@ export function OwnerRegisterPage() {
   const [slug, setSlug] = useState('')
   const [slugEdited, setSlugEdited] = useState(false)
   const [email, setEmail] = useState(fromGoogle?.email || '')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [selected, setSelected] = useState<Specialty[]>([])
   const [catalog, setCatalog] = useState<CatalogService[]>([])
@@ -215,11 +221,13 @@ export function OwnerRegisterPage() {
     if (selected.some(item => item !== 'outros') && catalogLoading && !preparedCustom.length) { setError('Aguarde o catálogo de serviços carregar.'); return }
     if (selected.some(item => item !== 'outros') && catalogError && !preparedCustom.length) { setError('Carregue as opções de serviços antes de continuar.'); return }
     if (!selectedServices.length && !preparedCustom.length) { setError('Escolha ou adicione pelo menos um serviço que você oferece.'); return }
+    const phoneDigits = phone.replace(/\D/g, '')
+    if (!/^(?:55)?\d{10,11}$/.test(phoneDigits)) { setError('Informe um celular ou telefone brasileiro com DDD.'); return }
     if (!strongPassword(password)) { setError('Crie uma senha com pelo menos 12 caracteres, incluindo letras e números.'); return }
     setBusy(true)
     try {
       const details = { ownerName: ownerName.trim(), businessName: businessName.trim(),
-        slug: slugify(slug), email: email.trim(), password, specialties: selected,
+        slug: slugify(slug), email: email.trim(), phone: phoneDigits, password, specialties: selected,
         selectedServices, customServices: preparedCustom, remember }
       const session = google
         ? await api.googleRegister('owner', google.ticket, details, currentGoogleAppNonce())
@@ -252,7 +260,7 @@ export function OwnerRegisterPage() {
   </div>
   return <AuthLayout title={createdSession ? 'Seu espaço está pronto' : 'Crie seu espaço'}
     subtitle={createdSession ? 'Ajuste a logo ou siga para conhecer a Nayla.' : 'Informe seus dados e escolha as áreas e serviços que quer oferecer.'}>
-    {!createdSession ? <div className="registration-trial"><span>SEU PRIMEIRO MÊS NA NAYLA</span><strong>30 dias grátis para testar</strong><p>Comece sem cartão. Após o teste, escolha um plano para continuar. Nenhuma cobrança será feita automaticamente.</p></div> : null}
+    {!createdSession ? <div className="registration-trial"><span>SUA EXPERIÊNCIA NA NAYLA</span><strong>30 dias para conhecer o app</strong><p>Crie sua conta sem cartão. A equipe Nayla libera seu acesso inicial uma vez e combina a renovação diretamente com você. Não há cobrança automática no app.</p></div> : null}
     {google && !createdSession ? <p className="form-success"><Check size={16} /> Google confirmado para {google.email}. Complete seu espaço e escolha uma senha de recuperação.</p> : null}
     {createdSession ? <div className="signup-logo-retry">
       <p className="form-success" role="status"><Check size={16} /> Sua conta foi criada. Você pode tentar outra imagem ou continuar sem logo.</p>
@@ -275,6 +283,9 @@ export function OwnerRegisterPage() {
       {logoPicker}
       <label>E-mail<input type="email" value={email} onChange={event => setEmail(event.target.value)}
         placeholder="voce@exemplo.com" autoComplete="email" readOnly={Boolean(google)} required /></label>
+      <label>Seu telefone com DDD<input type="tel" value={phone} onChange={event => setPhone(event.target.value)}
+        placeholder="(11) 99999-9999" autoComplete="tel" inputMode="tel" maxLength={20} required />
+        <small className="auth-help">Usado para identificar sua conta e permitir que a equipe Nayla entre em contato sobre o acesso.</small></label>
       <label>Senha<input type="password" value={password} onChange={event => setPassword(event.target.value)}
         placeholder="12 ou mais caracteres" autoComplete="new-password" minLength={12} required />
         <small className="auth-help">Use 12 ou mais caracteres, com letras e números. Evite nomes, datas e senhas repetidas.</small></label>

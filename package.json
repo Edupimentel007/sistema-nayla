@@ -14,7 +14,11 @@
     "test": "node --import tsx --test --test-concurrency=1 server/*.test.ts",
     "mobile:sync": "node scripts/check-mobile-env.mjs && npm run build && cap sync",
     "mobile:android": "cap open android",
-    "mobile:ios": "cap open ios"
+    "mobile:ios": "cap open ios",
+    "groq:setup": "node scripts/configure-groq.mjs",
+    "groq:check": "node scripts/configure-groq.mjs --check",
+    "access:secret": "node scripts/configure-access-secret.mjs",
+    "admin:promote": "node scripts/promote-superadmin.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",

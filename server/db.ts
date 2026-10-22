@@ -24,6 +24,31 @@ db.pragma('busy_timeout = 5000');
 
 const schemaPath = fileURLToPath(new URL('../database/schema.sql', import.meta.url));
 db.exec(readFileSync(schemaPath, 'utf8'));
+// Preserve access already earned before the operator switched from in-app
+// Mercado Pago billing to manual collection. No new trial is started here.
+const oldBilling = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='business_billing'").get();
+if (oldBilling) {
+  type Legacy = { business_id: string; onboarding_completed: number; status: string;
+    current_period_end: string | null; trial_started_at: number | null };
+  const rows = db.prepare('SELECT business_id,onboarding_completed,status,current_period_end,trial_started_at FROM business_billing')
+    .all() as Legacy[];
+  const insert = db.prepare(`INSERT OR IGNORE INTO business_access
+    (business_id,state,trial_started_at,trial_ends_at,access_ends_at,onboarding_completed)
+    VALUES(?,?,?,?,?,?)`);
+  db.transaction(() => {
+    for (const row of rows) {
+      const trialEnds = row.trial_started_at ? row.trial_started_at + 30 * 86_400_000 : null;
+      const parsedPaidEnds = row.current_period_end ? Date.parse(row.current_period_end) : NaN;
+      const paidEnds = Number.isFinite(parsedPaidEnds) ? parsedPaidEnds : null;
+      const paidActive = paidEnds !== null && paidEnds > Date.now();
+      const state = paidActive || paidEnds !== null && !row.trial_started_at ? 'active'
+        : row.trial_started_at ? 'trial' : 'pending';
+      const ends = paidActive ? paidEnds : Math.max(trialEnds || 0, paidEnds || 0) || null;
+      insert.run(row.business_id, state, row.trial_started_at, trialEnds,
+        ends, row.onboarding_completed);
+    }
+  }).immediate();
+}
 // SQLite cannot widen an existing CHECK constraint in place. Preserve service
 // IDs so historical appointments keep pointing at the same records.
 const servicesSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='services'")

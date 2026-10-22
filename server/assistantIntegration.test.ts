@@ -7,6 +7,7 @@ import { createServer as createPortServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { catalog } from './catalog.js';
+import { activateFixtureOwner, fixtureOwnerPhone } from './testAccessFixture.js';
 
 type ModelCall = {
   toolNames: string[];
@@ -30,12 +31,16 @@ async function freePort() {
 }
 
 async function request(path: string, options: RequestInit = {}, cookie?: string) {
+  const body = fixtureOwnerPhone(path, options.body);
   const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
+    ...options, body,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(cookie ? { Cookie: cookie } : {}), ...options.headers },
   });
-  return { status: response.status, body: await response.json() as Record<string, any>,
+  const responseBody = await response.json() as Record<string, any>;
+  if (path === '/api/auth/register' && response.status === 201 && responseBody?.business?.id)
+    activateFixtureOwner(directory, responseBody.business.id);
+  return { status: response.status, body: responseBody,
     cookie: response.headers.get('set-cookie')?.split(';')[0] };
 }
 
@@ -147,7 +152,7 @@ describe('Nayla AI sends only relevant tenant data and tools', () => {
     api = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
       cwd: resolve('.'),
       env: { ...process.env, PORT: String(port), DATABASE_PATH: join(directory, 'nayla.sqlite'),
-        NODE_ENV: 'test', APP_ORIGIN: baseUrl, OPENAI_API_KEY: '',
+        NODE_ENV: 'test', APP_ORIGIN: baseUrl, OPENAI_API_KEY: '', AI_PROVIDER: 'ollama',
         OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}/v1`, OLLAMA_MODEL: model,
         GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', MERCADO_PAGO_ACCESS_TOKEN: '',
         WHATSAPP_MODE: 'simulate',

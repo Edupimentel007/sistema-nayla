@@ -45,6 +45,48 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_business_cpf ON users(business_id, cpf) 
 CREATE UNIQUE INDEX IF NOT EXISTS users_business_phone ON users(business_id, phone) WHERE phone IS NOT NULL AND role = 'client';
 CREATE INDEX IF NOT EXISTS users_business_role ON users(business_id, role);
 
+-- Access is granted by Nayla's operator, never by a client-side trial action.
+CREATE TABLE IF NOT EXISTS business_access (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','trial','active','blocked')),
+  trial_started_at INTEGER,
+  trial_ends_at INTEGER,
+  access_ends_at INTEGER,
+  onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0,1)),
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS super_admin_accounts (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  promoted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS owner_devices (
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  device_hash TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (business_id,device_hash)
+);
+CREATE INDEX IF NOT EXISTS owner_devices_hash ON owner_devices(device_hash);
+-- HMAC claims survive account deletion so a new account cannot restart a trial.
+CREATE TABLE IF NOT EXISTS trial_identity_claims (
+  identity_hash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('email','phone','device')),
+  business_id TEXT NOT NULL,
+  claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS access_audit (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('trial_granted','access_granted','access_extended','access_blocked')),
+  previous_state TEXT,
+  new_state TEXT NOT NULL,
+  previous_ends_at INTEGER,
+  new_ends_at INTEGER,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS access_audit_business_created ON access_audit(business_id,created_at DESC);
+
 CREATE TABLE IF NOT EXISTS business_whatsapp_settings (
   business_id TEXT PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
   mode TEXT NOT NULL CHECK (mode IN ('simulate','meta','disabled')),

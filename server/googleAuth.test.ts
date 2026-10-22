@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { catalog as serviceTemplates } from './catalog.js';
+import { activateFixtureOwner, fixtureOwnerPhone } from './testAccessFixture.js';
 
 let child: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -22,10 +23,15 @@ async function freePort() {
 }
 
 async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+  const payload = fixtureOwnerPhone(path, JSON.stringify(body));
   const response = await fetch(`${baseUrl}${path}`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    headers: { 'Content-Type': 'application/json', ...headers }, body: payload });
   const setCookies = response.headers.getSetCookie().map(value => value.split(';')[0]);
-  return { status: response.status, body: await response.json() as any,
+  const responseBody = await response.json() as any;
+  if (['/api/auth/register','/api/auth/google/register'].includes(path) &&
+      response.status === 201 && responseBody?.business?.id)
+    activateFixtureOwner(directory, responseBody.business.id);
+  return { status: response.status, body: responseBody,
     cookie: setCookies.find(value => value.startsWith('nayla_owner_session=')) || setCookies[0] || '' };
 }
 

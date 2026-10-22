@@ -1,0 +1,73 @@
+.superadmin-page { min-height: 100vh; background: var(--bg); color: var(--ink); }
+.superadmin-header { display: flex; justify-content: space-between; align-items: center; gap: 18px; min-height: 72px; padding: 12px clamp(18px, 5vw, 70px); background: var(--surface); border-bottom: 1px solid var(--border); }
+.superadmin-header > div { display: flex; align-items: center; gap: 14px; }
+.superadmin-header > div > span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.superadmin-header > div > span svg { color: var(--pink); }
+.superadmin-main { max-width: 1240px; margin: 0 auto; padding: clamp(28px, 5vw, 62px) 22px 70px; }
+.superadmin-intro { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.superadmin-intro h1 { margin: 9px 0 10px; font: 400 clamp(36px, 5vw, 54px)/1.1 Georgia, 'Times New Roman', serif; }
+.superadmin-intro p { max-width: 680px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.superadmin-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 32px 0 36px; }
+.superadmin-stats > div { display: grid; gap: 12px; min-height: 102px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.superadmin-stats span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.superadmin-stats strong { font-size: 28px; line-height: 1; }
+.superadmin-directory { padding: clamp(17px, 3vw, 30px); border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.superadmin-directory-heading { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.superadmin-directory-heading h2 { margin: 6px 0 0; font: 400 30px/1.2 Georgia, 'Times New Roman', serif; }
+.superadmin-directory-heading form { display: flex; align-items: center; gap: 9px; min-width: min(430px, 100%); padding: 4px 4px 4px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.superadmin-directory .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.superadmin-directory-heading form > svg { flex: none; color: var(--muted); }
+.superadmin-directory-heading input { flex: 1; min-width: 70px; height: 38px; border: 0; outline: none; color: var(--ink); background: transparent; font-size: 12px; }
+.superadmin-directory-heading .btn { min-height: 38px; }
+.superadmin-manual-note { display: flex; align-items: flex-start; gap: 8px; margin: 20px 0 0; padding: 12px 14px; color: var(--muted); background: var(--pink-softer); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.superadmin-manual-note svg { flex: none; color: var(--pink); }
+.superadmin-feedback { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.superadmin-feedback.success { color: #23704c; background: #e9f5ed; }
+.superadmin-feedback.error { color: #a43d53; background: #fcecef; }
+.superadmin-feedback.error .subtle-link { margin-left: auto; color: inherit; }
+.superadmin-list { display: grid; gap: 12px; margin-top: 18px; }
+.superadmin-card { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 20px; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.superadmin-card-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.superadmin-card-heading h3 { margin: 0; font-size: 16px; }
+.superadmin-card-heading > div > span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.superadmin-status { padding: 6px 9px; border-radius: 100px; font-size: 10px; font-weight: 800; }
+.superadmin-status.pending { background: #f8f0dd; color: #805d25; }
+.superadmin-status.trial, .superadmin-status.active { background: #e4f3e9; color: #286547; }
+.superadmin-status.expired, .superadmin-status.blocked { background: #f8e8ec; color: #9b3650; }
+.superadmin-card-info { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; margin-top: 16px; }
+.superadmin-card-info :is(a, span) { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.superadmin-card-info a { color: var(--ink); text-decoration: none; }
+.superadmin-card-info a:hover { color: var(--pink); text-decoration: underline; }
+.superadmin-card-dates { display: flex; flex-wrap: wrap; gap: 7px 20px; margin-top: 15px; color: var(--muted); font-size: 11px; }
+.superadmin-card-dates strong { color: var(--ink); }
+.superadmin-card-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin-top: 14px; }
+.superadmin-booking-link { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: var(--pink); font-size: 11px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.superadmin-booking-link:hover { text-decoration: underline; }
+.superadmin-history { grid-column: 1 / -1; padding-top: 16px; border-top: 1px solid var(--border); }
+.superadmin-history h4 { margin: 0 0 12px; font-size: 12px; }
+.superadmin-history ol { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
+.superadmin-history li { color: var(--muted); font-size: 11px; }
+.superadmin-history li strong { margin-right: 10px; color: var(--ink); }
+.superadmin-history p { margin: 4px 0; color: var(--muted); font-size: 11px; }
+.superadmin-card-actions { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 12px; border-left: 1px solid var(--border); padding-left: 20px; }
+.superadmin-card-actions .btn { justify-content: center; text-align: center; font-size: 11px; }
+.superadmin-revoke { align-self: center; color: #a43d53; }
+.superadmin-revoke-confirm { display: grid; justify-items: center; gap: 9px; font-size: 11px; color: var(--muted); }
+.superadmin-revoke-confirm .btn { width: 100%; color: #a43d53; }
+.superadmin-empty { display: grid; justify-items: center; padding: 55px 16px; color: var(--muted); text-align: center; }
+.superadmin-empty h3 { margin-bottom: 5px; color: var(--ink); }
+.superadmin-empty p { margin: 0; font-size: 12px; }
+.superadmin-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 22px; font-size: 12px; color: var(--muted); }
+.superadmin-footnote { max-width: 770px; margin: 23px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.superadmin-denied { gap: 12px; padding: 24px; text-align: center; }
+.superadmin-denied > svg { color: var(--pink); }
+.superadmin-denied h1 { margin: 0; font: 400 34px Georgia, 'Times New Roman', serif; }
+.superadmin-denied p { max-width: 350px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+:root[data-theme='dark'] .superadmin-feedback.success { background: #253e34; color: #b7e8cb; }
+:root[data-theme='dark'] .superadmin-feedback.error { background: #493038; color: #ffd1dc; }
+:root[data-theme='dark'] .superadmin-status.pending { background: #473b28; color: #f5d89b; }
+:root[data-theme='dark'] .superadmin-status.trial, :root[data-theme='dark'] .superadmin-status.active { background: #294538; color: #b7e8cb; }
+:root[data-theme='dark'] .superadmin-status.expired, :root[data-theme='dark'] .superadmin-status.blocked { background: #493038; color: #ffd1dc; }
+:root[data-theme='dark'] .superadmin-revoke, :root[data-theme='dark'] .superadmin-revoke-confirm .btn { color: #ffd1dc; }
+@media (max-width: 850px) { .superadmin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .superadmin-card { grid-template-columns: 1fr; } .superadmin-card-actions { flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; border-left: 0; border-top: 1px solid var(--border); padding: 16px 0 0; } }
+@media (max-width: 560px) { .superadmin-header > div > span { display: none; } .superadmin-header .btn { padding-inline: 11px; } .superadmin-intro { align-items: flex-start; flex-direction: column; } .superadmin-stats { gap: 8px; } .superadmin-stats > div { min-height: 84px; padding: 13px; } .superadmin-stats strong { font-size: 24px; } .superadmin-directory-heading form { min-width: 100%; } .superadmin-card { padding: 15px; } .superadmin-card-actions { align-items: stretch; flex-direction: column; } .superadmin-pagination { gap: 7px; } .superadmin-pagination .btn { padding-inline: 10px; } }

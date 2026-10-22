@@ -1,5 +1,6 @@
 import { db, id } from './db.js';
 import { sendAppointmentReminder, type ReminderPhase } from './notifications.js';
+import { manualAccessForBusiness } from './manualAccess.js';
 
 type Row = Record<string, any>;
 const zone = 'America/Sao_Paulo';
@@ -172,6 +173,7 @@ export async function processDueReminders(now = new Date()) {
   let queued = 0;
   db.transaction(() => {
     for (const appointment of appointments) {
+      if (!manualAccessForBusiness(appointment.business_id)) continue;
       const revision = currentRevision(appointment.id);
       for (const plan of reminderPlan(appointment.date, appointment.start_time)) {
         if (nowMs < plan.due || nowMs >= plan.until) continue;
@@ -211,7 +213,8 @@ export async function processDueReminders(now = new Date()) {
     if (!claimed) continue;
     const plan = reminderPlan(job.date, job.start_time)
       .find(item => item.phase === job.phase);
-    if (!plan || job.status !== 'pending' && job.status !== 'confirmed' ||
+    if (!manualAccessForBusiness(job.business_id) ||
+      !plan || job.status !== 'pending' && job.status !== 'confirmed' ||
       currentRevision(job.appointment_id) !== job.revision || nowMs >= plan.until) {
       db.prepare(`UPDATE reminder_deliveries SET status='skipped',updated_at=CURRENT_TIMESTAMP
         WHERE id=?`).run(job.id);

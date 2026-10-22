@@ -192,10 +192,10 @@ const appGuides: AppGuide[] = [
     caveat: '“RESPONDER URGENTE” é texto na prévia e no histórico; a Cloud API não aplica etiqueta nativa ao WhatsApp. O app não confirma entrega só porque a Meta aceitou o envio.',
   },
   {
-    id: 'planos', title: 'Teste e planos', terms: ['plano', 'assinatura', 'teste gratis', 'primeiro mes', 'cobranca', 'mercado pago', 'pix', 'cartao'],
+    id: 'planos', title: 'Teste e acesso', terms: ['plano', 'assinatura', 'teste gratis', 'primeiro mes', 'cobranca', 'mercado pago', 'pix', 'cartao'],
     path: '/app/boas-vindas',
-    instructions: 'A profissional pode iniciar 30 dias grátis sem cartão. Depois, escolhe o plano mensal de R$ 49,90 ou anual de R$ 420. O pagamento, quando configurado, ocorre no ambiente seguro do Mercado Pago; a Nayla não solicita dados de cartão no chat.',
-    caveat: 'Não há cobrança automática na versão atual. O checkout é oferecido na versão web, sujeito à configuração do Mercado Pago.',
+    instructions: 'O cadastro da profissional começa aguardando liberação. A equipe Nayla pode conceder 30 dias iniciais sem cartão, uma única vez para a identidade cadastrada. O estado e a data final aparecem em Meu acesso. Depois disso, a profissional combina a renovação com a equipe fora do app; o super admin concede ou bloqueia o acesso manualmente.',
+    caveat: 'A Nayla não oferece checkout, Pix ou cobrança automática no app e não confirma pagamentos por conta própria. Nunca solicite dados de cartão ou banco no chat.',
   },
   {
     id: 'conta', title: 'Acesso e conta', terms: ['login', 'senha', 'google', 'manter conectado', 'sair', 'conta', 'cadastro'],

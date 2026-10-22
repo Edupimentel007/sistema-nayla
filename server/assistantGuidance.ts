@@ -221,7 +221,7 @@ export function guidanceAnswer(query: string, business: AssistantBusiness): stri
     return 'Abra Visão geral para acompanhar os números do período escolhido e Análises para gráficos de caixa, agenda, clientes e serviços. O ticket médio usa os valores dos atendimentos concluídos; entradas manuais não entram nessa média. Posso explicar cada indicador com os dados do seu espaço.';
   }
   if (/plano|assinatura|teste gratis|30 dias gratis|cobranca/.test(query)) {
-    return 'Seu primeiro mês de teste é grátis e começa sem cartão. Para acompanhar o prazo ou escolher o plano mensal ou anual, abra Planos no app. Pagamentos são concluídos no ambiente seguro do provedor; a Nayla não pede dados do cartão no chat.';
+    return 'Crie sua conta sem cartão e acompanhe o estado do acesso em Meu acesso. A equipe Nayla decide quando liberar os 30 dias iniciais, uma única vez por profissional. Depois, combine a renovação diretamente com a equipe; a cobrança acontece fora do app e a liberação é manual. A Nayla não pede dados de cartão no chat.';
   }
   if (/quanto cobrar|precific|preco justo|definir.{0,15}preco/.test(query)) {
     return 'Para precificar um serviço, some materiais e descartáveis, tempo de trabalho, custos fixos proporcionais e taxas; depois defina a margem desejada. Compare também a demanda e o posicionamento na sua região. O preço atual no app é seu cadastro, não uma estimativa de custo ou lucro. Posso ajudar a analisar ticket médio e procura dos seus serviços.';

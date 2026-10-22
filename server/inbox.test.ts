@@ -23,6 +23,8 @@ describe('durable appointment inbox and reminders', () => {
     inbox = await import('./inbox.js');
     db.prepare(`INSERT INTO businesses(id,slug,name,specialties) VALUES(?,?,?,?)`)
       .run(businessId, 'inbox-test', 'Espaço Inbox', '["unhas"]');
+    db.prepare(`INSERT INTO business_access(business_id,state,access_ends_at)
+      VALUES(?,'active',?)`).run(businessId,Date.now()+365*86_400_000);
     db.prepare(`INSERT INTO users(id,business_id,role,name,email,password_hash)
       VALUES(?,?,'owner',?,?,?)`).run(ownerId, businessId, 'Dona', 'owner-inbox@example.test', 'hash');
     db.prepare(`INSERT INTO users(id,business_id,role,name,phone,cpf,password_hash,whatsapp_opt_in)
@@ -136,5 +138,26 @@ describe('durable appointment inbox and reminders', () => {
     const phases = db.prepare(`SELECT phase FROM reminder_deliveries WHERE appointment_id=?`)
       .all(earlyId) as { phase: string }[];
     assert.deepEqual(phases.map(item => item.phase), ['day_of']);
+  });
+
+  it('does not prepare or send reminders while the professional is blocked', async () => {
+    const blockedId = randomUUID();
+    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,end_time,
+      price_cents,whatsapp_opt_in,created_at) VALUES(?,?,?,?,?,?,?,5000,1,?)`)
+      .run(blockedId,businessId,clientId,serviceId,'2026-11-06','15:00','16:00',
+        '2026-11-01 12:00:00');
+    const starts = inbox.saoPauloEpoch('2026-11-06','15:00');
+    db.prepare(`INSERT INTO reminder_deliveries(id,business_id,appointment_id,revision,phase,due_at)
+      VALUES(?,?,?,0,'day_before',?)`).run(randomUUID(),businessId,blockedId,
+        starts-24*60*60_000);
+    db.prepare("UPDATE business_access SET state='blocked' WHERE business_id=?").run(businessId);
+    const result = await inbox.processDueReminders(new Date(starts-24*60*60_000+60_000));
+    assert.equal(result.queued,0);
+    assert.equal((db.prepare(`SELECT status FROM reminder_deliveries WHERE appointment_id=?`)
+      .get(blockedId) as {status:string}).status,'skipped');
+    assert.equal((db.prepare(`SELECT COUNT(*) AS count FROM notification_outbox WHERE appointment_id=?`)
+      .get(blockedId) as {count:number}).count,0);
+    assert.equal((db.prepare(`SELECT COUNT(*) AS count FROM app_notifications WHERE appointment_id=?`)
+      .get(blockedId) as {count:number}).count,0);
   });
 });

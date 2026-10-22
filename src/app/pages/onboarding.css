@@ -9,7 +9,7 @@
 .trial-banner { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(24px, 4vw, 58px); align-items: center; margin-top: 36px; padding: clamp(24px, 3vw, 38px); border: 1px solid var(--pink); border-radius: 12px; background: var(--pink-softer); }
 .trial-banner-value { display: flex; flex-direction: column; align-items: flex-start; padding: 20px 0 20px 24px; border-left: 3px solid var(--pink); }
 .trial-banner-value span { color: var(--pink); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
-.trial-banner-value strong { margin: 10px 0 3px; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; font-size: clamp(50px, 6vw, 76px); font-weight: 400; letter-spacing: -.055em; line-height: 1; }
+.trial-banner-value strong { margin: 10px 0 3px; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; font-size: clamp(46px, 5vw, 56px); font-weight: 400; letter-spacing: -.055em; line-height: 1; white-space: nowrap; }
 .trial-banner-value small { color: var(--muted); font-size: 12px; }
 .trial-banner-copy h2 { margin: 7px 0 9px; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; font-size: clamp(26px, 3vw, 39px); font-weight: 400; line-height: 1.2; }
 .trial-banner-copy > p { max-width: 610px; margin: 0 0 19px; color: var(--muted); font-size: 13px; line-height: 1.6; }

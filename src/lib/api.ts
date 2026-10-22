@@ -1,4 +1,4 @@
-import { clearNativeSession, isNativeApp, nativeSessionToken, saveNativeSession, type SessionRole } from './nativeSession'
+import { clearNativeSession, isNativeApp, nativeInstallationId, nativeSessionToken, saveNativeSession, type SessionRole } from './nativeSession'
 
 export type Specialty = 'unhas' | 'sobrancelhas' | 'cilios' | 'cabelos' | 'terapia_capilar'
   | 'maquiagem' | 'depilacao' | 'estetica_facial' | 'estetica_corporal' | 'massagens'
@@ -49,8 +49,10 @@ export type AssistantActionPreparation = {
 export type BillingPlan = 'monthly' | 'annual'
 export type BillingMethod = 'card' | 'pix'
 export type Subscription = {
+  manualAccessStatus?: 'pending' | 'trial' | 'active' | 'expired' | 'blocked'
+  accessEndsAt?: string | null
   plan: BillingPlan | null
-  status: 'active' | 'pending' | 'none' | 'past_due' | 'canceled'
+  status: 'active' | 'pending' | 'none' | 'past_due' | 'canceled' | 'trial' | 'expired' | 'blocked'
   onboardingCompleted: boolean
   providerConfigured: boolean
   trialEndsAt: string | null
@@ -67,10 +69,31 @@ export type Subscription = {
   annualInstallmentsPaid?: number | null
   verificationDelayed?: boolean
 }
-export type BillingCheckout = {
-  status: 'pending'
-  checkoutUrl?: string
-  pix?: { payload: string; encodedImage: string; expiresAt?: string }
+export type ProfessionalAccess = {
+  businessId: string
+  businessName: string
+  slug: string
+  ownerId: string
+  ownerName: string
+  email: string
+  phone: string
+  specialties: Specialty[]
+  createdAt: string
+  manualAccessStatus: 'pending' | 'trial' | 'active' | 'expired' | 'blocked'
+  accessEndsAt: string | null
+  trialStartedAt: string | null
+  trialEndsAt: string | null
+  googleConnected: boolean
+}
+export type ProfessionalsPage = { items: ProfessionalAccess[]; total: number; page: number; pageSize: number }
+export type AccessAuditItem = {
+  action: string
+  previousState: string
+  newState: string
+  previousEndsAt: number | null
+  newEndsAt: number | null
+  reason: string | null
+  createdAt: string
 }
 
 export type Service = {
@@ -198,7 +221,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (isNativeApp && (!apiOrigin || !/^https?:\/\/[^/]+$/.test(apiOrigin)))
     throw new ApiError('O app precisa do endereço público da API para funcionar.', 0)
   const role: SessionRole = path.startsWith('/api/client/') || path.startsWith('/api/public/') ? 'client' : 'owner'
-  const token = await nativeSessionToken(role)
+  const [token, installationId] = await Promise.all([nativeSessionToken(role), nativeInstallationId()])
   let response: Response
   try {
     response = await fetch(`${apiOrigin || ''}${path}`, {
@@ -206,7 +229,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...options,
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(isNativeApp ? { 'X-Nayla-App': 'mobile', ...(token ? { Authorization: `Bearer ${token}` } : {}) } : {}),
+        ...(isNativeApp ? { 'X-Nayla-App': 'mobile', ...(installationId ? { 'X-Nayla-Device': installationId } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) } : {}),
         ...options.headers,
       },
     })
@@ -237,7 +260,7 @@ const query = (values: Record<string, string>) => new URLSearchParams(values).to
 
 export const api = {
   catalog: () => request<{ services: CatalogService[] }>('/api/catalog'),
-  register: (data: { ownerName: string; businessName: string; slug: string; email: string; password: string; specialties: Specialty[]; selectedServices: string[]; customServices: CustomSignupService[]; remember?: boolean }) =>
+  register: (data: { ownerName: string; businessName: string; slug: string; email: string; phone: string; password: string; specialties: Specialty[]; selectedServices: string[]; customServices: CustomSignupService[]; remember?: boolean }) =>
     requestSession<Session>('owner', '/api/auth/register', { method: 'POST', body: json(data) }),
   login: (email: string, password: string, remember = false) =>
     requestSession<Session>('owner', '/api/auth/login', { method: 'POST', body: json({ email, password, remember }) }),
@@ -260,16 +283,20 @@ export const api = {
       method: 'POST', body: json({ role, ticket, appNonce, ...data }),
     }),
   me: () => request<Session>('/api/auth/me'),
+  adminMe: () => request<{ isSuperAdmin: boolean }>('/api/admin/me'),
+  professionals: (search = '', page = 1, pageSize = 20) => request<ProfessionalsPage>(
+    `/api/admin/professionals?${query({ query: search, page: String(page), pageSize: String(pageSize) })}`),
+  professionalAudit: (businessId: string) => request<{ items: AccessAuditItem[] }>(
+    `/api/admin/audit?${query({ businessId, page: '1', pageSize: '20' })}`),
+  grantProfessional: (businessId: string, kind: 'trial' | 'paid', days = 30) => request<ProfessionalAccess>(
+    `/api/admin/professionals/${encodeURIComponent(businessId)}/grant`, { method: 'POST', body: json({ kind, days }) }),
+  extendProfessional: (businessId: string, days = 30) => request<ProfessionalAccess>(
+    `/api/admin/professionals/${encodeURIComponent(businessId)}/extend`, { method: 'POST', body: json({ days }) }),
+  revokeProfessional: (businessId: string) => request<ProfessionalAccess>(
+    `/api/admin/professionals/${encodeURIComponent(businessId)}/revoke`, { method: 'POST', body: json({}) }),
   subscription: () => request<Subscription>('/api/billing/subscription'),
-  cancelSubscription: () => request<Subscription>('/api/billing/subscription/cancel', {
-    method: 'POST', body: json({}),
-  }),
-  startTrial: () => request<Subscription>('/api/billing/trial', { method: 'POST', body: JSON.stringify({}) }),
   completeOnboarding: () => request<{ onboardingCompleted: boolean }>('/api/billing/onboarding', {
     method: 'PATCH', body: json({ completed: true }),
-  }),
-  billingCheckout: (plan: BillingPlan, method: BillingMethod, cpfCnpj?: string) => request<BillingCheckout>('/api/billing/checkout', {
-    method: 'POST', body: json({ plan, method, ...(method === 'pix' ? { cpfCnpj } : {}) }),
   }),
   logout: () => logoutSession('owner', '/api/auth/logout'),
   deleteOwnerAccount: async (password: string) => {

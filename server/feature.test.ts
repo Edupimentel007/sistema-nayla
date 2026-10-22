@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import sharp from 'sharp';
 import { catalog as serviceTemplates } from './catalog.js';
+import { activateFixtureOwner, fixtureOwnerPhone } from './testAccessFixture.js';
 
 let child: ChildProcessWithoutNullStreams;
 let directory: string;
@@ -25,16 +26,21 @@ async function freePort() {
 }
 
 async function request(path: string, options: RequestInit = {}, cookie?: string) {
+  const body = fixtureOwnerPhone(path, options.body);
   const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
+    ...options, body,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(cookie ? { Cookie: cookie } : {}), ...options.headers },
   });
+  const responseBody = response.status === 204 ? null : await response.json() as any;
+  if (path === '/api/auth/register' && response.status === 201 && responseBody?.business?.id)
+    activateFixtureOwner(directory, responseBody.business.id);
   return {
     status: response.status,
-    body: response.status === 204 ? null : await response.json() as any,
+    body: responseBody,
     cookie: response.headers.get('set-cookie')?.split(';')[0],
-    setCookie: response.headers.get('set-cookie') || '',
+    setCookie: response.headers.getSetCookie().find(value =>
+      value.startsWith('nayla_owner_session=') || value.startsWith('nayla_client_session=')) || '',
   };
 }
 
