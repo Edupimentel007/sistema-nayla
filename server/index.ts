@@ -284,6 +284,28 @@ app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(cookieName('owner'), { path: '/' });
   res.status(204).end();
 });
+app.post('/api/auth/change-password', authenticatedOwner, rateLimit(5), async (req, res) => {
+  const input = z.object({
+    currentPassword: z.string().min(1).max(100), newPassword: password,
+  }).parse(req.body);
+  const user = currentUser(res);
+  if (!await bcrypt.compare(input.currentPassword, user.password_hash))
+    throw new ApiError(401, 'Senha atual incorreta.');
+  if (input.newPassword === input.currentPassword)
+    throw new ApiError(400, 'Escolha uma senha diferente da atual.');
+  const newHash = await bcrypt.hash(input.newPassword, 12);
+  db.transaction(() => {
+    if (getSessionUser(req, 'owner')?.id !== user.id)
+      throw new ApiError(401, 'Sessão expirada. Faça login novamente.');
+    const updated = db.prepare('UPDATE users SET password_hash=? WHERE id=? AND password_hash=?')
+      .run(newHash, user.id, user.password_hash);
+    if (updated.changes !== 1)
+      throw new ApiError(409, 'A senha foi alterada em outra sessão. Faça login novamente.');
+    db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
+  }).immediate();
+  res.clearCookie(cookieName('owner'), { path: '/' });
+  res.status(204).end();
+});
 app.delete('/api/auth/account', authenticatedOwner, rateLimit(10), async (req, res) => {
   const { password: suppliedPassword } = z.object({ password: z.string().min(1).max(100) }).parse(req.body);
   const user = currentUser(res);

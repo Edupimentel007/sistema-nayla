@@ -299,6 +299,12 @@ export const api = {
     method: 'PATCH', body: json({ completed: true }),
   }),
   logout: () => logoutSession('owner', '/api/auth/logout'),
+  changeOwnerPassword: async (currentPassword: string, newPassword: string) => {
+    await request<void>('/api/auth/change-password', {
+      method: 'POST', body: json({ currentPassword, newPassword }),
+    })
+    await clearNativeSession('owner')
+  },
   deleteOwnerAccount: async (password: string) => {
     await request<void>('/api/auth/account', { method: 'DELETE', body: JSON.stringify({ password }) })
     await clearNativeSession('owner')
