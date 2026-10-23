@@ -11,7 +11,7 @@
     "dev:vite": "vite --configLoader native --host 0.0.0.0",
     "build": "tsc --noEmit && vite build --configLoader native",
     "start": "node scripts/node-with-system-ca.mjs --import tsx server/index.ts",
-    "test": "node --import tsx --test --test-concurrency=1 server/*.test.ts scripts/groq-local-setup.test.mjs",
+    "test": "node --import tsx --test --test-concurrency=1 server/*.test.ts scripts/groq-local-setup.test.mjs deploy/oracle/backup.test.mjs",
     "mobile:sync": "node scripts/check-mobile-env.mjs && npm run build && cap sync",
     "mobile:android": "cap open android",
     "mobile:ios": "cap open ios",

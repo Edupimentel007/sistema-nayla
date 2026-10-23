@@ -167,6 +167,8 @@ Configure `NODE_ENV=production`, `APP_ORIGIN` com a origem pública HTTPS, `WHAT
 
 Para testar ou publicar a interface web e a PWA, siga o [guia de implantação na Vercel](DEPLOY_VERCEL.md). Ele mostra as dependências da API, os limites do plano gratuito e uma alternativa experimental sem mensalidade de hospedagem. A [preparação do banco para Turso](database/MIGRATION_TURSO.md) explica o backup e o trabalho necessário antes de executar a API sem VPS.
 
+Para hospedar o app completo em uma VM Oracle Always Free, sem Vercel e com SQLite persistente, consulte o [guia de implantação Oracle](DEPLOY_ORACLE_ALWAYS_FREE.md). A disponibilidade da VM e a permanência dentro da franquia gratuita precisam ser verificadas na conta Oracle.
+
 ## Estrutura
 
 - `src/`: interface React da empreendedora e da cliente.

@@ -1,0 +1,30 @@
+[Unit]
+Description=Nayla web, API and appointment reminders
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=nayla
+Group=nayla
+WorkingDirectory=/srv/nayla/app
+EnvironmentFile=/etc/nayla/nayla.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node scripts/node-with-system-ca.mjs --import tsx server/index.ts
+Restart=on-failure
+RestartSec=5s
+StateDirectory=nayla
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

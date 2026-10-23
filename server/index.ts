@@ -1275,8 +1275,11 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // serve requests: the current SQLite database is local to this process.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 3001);
+  // Bind to loopback behind a reverse proxy in production. Keep the existing
+  // all-interface default for local development and LAN testing.
+  const host = process.env.LISTEN_HOST || '0.0.0.0';
   startReminderWorker();
-  app.listen(port, () => console.log(`Nayla API disponível em http://localhost:${port}`));
+  app.listen(port, host, () => console.log(`Nayla API disponível em http://${host}:${port}`));
 }
 
 export default app;

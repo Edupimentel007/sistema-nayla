@@ -1,0 +1,25 @@
+[Unit]
+Description=Verified online backup of Nayla SQLite database
+After=nayla.service
+
+[Service]
+Type=oneshot
+User=nayla
+Group=nayla
+WorkingDirectory=/srv/nayla/app
+EnvironmentFile=/etc/nayla/nayla.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node deploy/oracle/backup.mjs
+StateDirectory=nayla-backups
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nayla
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
