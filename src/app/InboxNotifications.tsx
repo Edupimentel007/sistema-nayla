@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, Check, RefreshCw, X } from 'lucide-react'
+import { ArrowUpRight, Bell, Check, RefreshCw, X } from 'lucide-react'
+import { Browser } from '@capacitor/browser'
 import { api, type Inbox } from '../lib/api'
 import { isNativeApp } from '../lib/nativeSession'
 import './inbox-notifications.css'
@@ -13,11 +14,19 @@ function dateTime(value: string) {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
-function showDeviceNotice(id: string) {
+function showDeviceNotice(id: string, urgent = false) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  try { new Notification('Novo aviso na Nayla', {
-    body: 'Abra o app para ver os detalhes da sua agenda.', tag: id,
+  try { new Notification(urgent ? 'Responder urgente na Nayla' : 'Novo aviso na Nayla', {
+    body: urgent ? 'Uma cliente alterou ou cancelou um agendamento. Abra o app para responder.'
+      : 'Abra o app para ver os detalhes da sua agenda.', tag: id,
   }) } catch { /* browser may grant permission but block this surface */ }
+}
+
+function clientWhatsAppUrl(phone: string | null | undefined) {
+  const digits = (phone || '').replace(/\D/g, '')
+  const withCountryCode = /^\d{10,11}$/.test(digits) ? `55${digits}` : digits
+  return /^55\d{10,11}$/.test(withCountryCode)
+    ? `https://wa.me/${withCountryCode}` : null
 }
 
 function useInbox(role: Role, onUnread?: (count: number) => void) {
@@ -34,7 +43,8 @@ function useInbox(role: Role, onUnread?: (count: number) => void) {
       if (sequence !== requestSequence.current) return
       if (role === 'client' && started.current) {
         for (const item of next.items) {
-          if (!item.readAt && !previousIds.current.has(item.id)) showDeviceNotice(item.id)
+          if (!item.readAt && !previousIds.current.has(item.id))
+            showDeviceNotice(item.id, item.requiresResponse)
         }
       }
       previousIds.current = new Set(next.items.map(item => item.id))
@@ -90,18 +100,33 @@ function Items({ role, onUnread }: { role: Role; onUnread?: (count: number) => v
         aria-label="Atualizar avisos" title="Atualizar avisos"><RefreshCw size={17}/></button></div>
     {error ? <p className="inbox-error" role="alert">{error}</p> : null}
     {loading ? <p className="inbox-empty">Carregando avisos...</p> :
-      data.items.length ? <div className="inbox-list">{data.items.map(item =>
-        <article key={item.id} className={`inbox-item ${item.readAt ? '' : 'unread'}`}>
-          <div><strong>{item.title}</strong><time>{dateTime(item.createdAt)}</time></div>
+      data.items.length ? <div className="inbox-list">{data.items.map(item => {
+        const whatsappUrl = role === 'owner' && item.requiresResponse
+          ? clientWhatsAppUrl(item.clientPhone) : null
+        return <article key={item.id}
+          className={`inbox-item ${item.readAt ? '' : 'unread'} ${item.requiresResponse ? 'urgent' : ''}`}>
+          <div className="inbox-item-head"><div className="inbox-item-title"><strong>{item.title}</strong>
+            {item.requiresResponse ? <span className="inbox-urgent-label">Responder urgente</span> : null}
+          </div><time>{dateTime(item.createdAt)}</time></div>
           <p>{item.message}</p>
-          {!item.readAt ? <button type="button" onClick={() => void markRead(item.id)}>
-            <Check size={15}/> Marcar como lido</button> : null}
-        </article>)}</div> : <p className="inbox-empty">Os avisos de agendamentos aparecerão aqui.</p>}
+          <div className="inbox-item-actions">
+            {whatsappUrl ? <a href={whatsappUrl} target="_blank" rel="noopener noreferrer"
+              onClick={event => { if (isNativeApp) { event.preventDefault();
+                void Browser.open({ url: whatsappUrl }) } }}>
+              Abrir conversa no WhatsApp <ArrowUpRight size={15}/></a> :
+              item.requiresResponse ? <span className="inbox-contact-missing">
+                Telefone indisponível. Confira o cadastro da cliente.</span> : null}
+            {!item.readAt ? <button type="button" onClick={() => void markRead(item.id)}>
+              <Check size={15}/> Marcar como lido</button> : null}
+          </div>
+        </article>
+      })}</div> : <p className="inbox-empty">Os avisos de agendamentos aparecerão aqui.</p>}
     {!isNativeApp && permission === 'default' ? <button type="button"
       className="inbox-device-button" onClick={() => void enableDevice()}>
       Ativar aviso enquanto este app estiver aberto</button> : null}
     <p className="inbox-footnote">Os lembretes ficam salvos neste espaço. Avisos do dispositivo
-      dependem de permissão e do app aberto; WhatsApp exige autorização e configuração da profissional.</p>
+      dependem de permissão e do app aberto; WhatsApp exige autorização e configuração da profissional.
+      {role === 'owner' ? ' Responder urgente abre o WhatsApp para você conversar com a cliente; a resposta não é enviada pela Nayla.' : ''}</p>
   </>
 }
 
@@ -118,7 +143,7 @@ export function OwnerInboxButton() {
       void api.ownerInbox().then(value => {
         if (!live || current !== sequence) return
         if (initialized) for (const item of value.items)
-          if (!item.readAt && !seen.has(item.id)) showDeviceNotice(item.id)
+          if (!item.readAt && !seen.has(item.id)) showDeviceNotice(item.id, item.requiresResponse)
         seen = new Set(value.items.map(item => item.id))
         initialized = true
         setCount(value.unread)

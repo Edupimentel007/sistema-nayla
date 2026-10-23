@@ -126,6 +126,8 @@ O bloqueio por conta e por identificador de instalação reduz tentativas simple
 
 ### Confirmação por WhatsApp
 
+Para a profissional configurar o próprio número, os três modelos e o webhook, siga o [guia passo a passo de WhatsApp](GUIA_WHATSAPP_PROFISSIONAIS.md). O mesmo tutorial está no app em **Configurações**.
+
 No ambiente local, `WHATSAPP_MODE=simulate` gera uma confirmação no histórico em **Configurações**, sem contato com a Meta ou envio ao telefone. O painel identifica essas mensagens como **simuladas**. A empreendedora pode abrir a conversa com o texto preparado e confirmar manualmente o envio no WhatsApp. O agendamento permanece disponível mesmo quando as mensagens estão desativadas.
 
 Cada empreendedora preenche seu próprio número no painel. Para que as mensagens automáticas saiam desse número, ela precisa ter uma conta WhatsApp Business Platform, o número conectado à Cloud API e um modelo de mensagem de utilidade aprovado pela Meta. No painel, ela seleciona o modo Meta e informa o token de acesso, ID do número, segredo do aplicativo Meta e nome do modelo da própria integração. O servidor só permite salvar esses segredos quando `WHATSAPP_ENCRYPTION_KEY` contém uma chave aleatória de 32 bytes em base64. Gere uma chave para a instalação e guarde-a em segurança: perder ou trocar a chave impede ler as credenciais já salvas. O modelo `pt_BR` precisa ter **seis parâmetros de texto, nesta ordem**: nome da cliente, nome do espaço, serviço, dia da semana, data (DD/MM/AAAA) e horário. Texto sugerido:

@@ -55,6 +55,8 @@ describe('durable appointment inbox and reminders', () => {
     assert.equal(ownerInbox.unread, 1);
     assert.equal(ownerInbox.items.length, 1);
     assert.match(ownerInbox.items[0].message, /Manicure, 02\/11\/2026 às 15:00/);
+    assert.equal('clientPhone' in ownerInbox.items[0], false);
+    assert.equal('requiresResponse' in ownerInbox.items[0], false);
     assert.equal(inbox.listInbox(clientId, businessId).items.length, 0);
     assert.equal(inbox.markInboxRead(clientId, businessId, ownerInbox.items[0].id), false);
     assert.equal(inbox.markInboxRead(ownerId, businessId, ownerInbox.items[0].id), true);
@@ -114,6 +116,31 @@ describe('durable appointment inbox and reminders', () => {
       assert.equal((db.prepare(`SELECT COUNT(*) AS count FROM reminder_deliveries
         WHERE appointment_id=? AND revision=1`).get(appointmentId) as { count: number }).count, 1);
     });
+
+  it('shows urgent contact only to the professional after a client change', () => {
+    const urgentAppointmentId = randomUUID();
+    db.prepare(`INSERT INTO appointments(id,business_id,client_id,service_id,date,start_time,
+      end_time,price_cents) VALUES(?,?,?,?,?,?,?,5000)`)
+      .run(urgentAppointmentId, businessId, clientId, serviceId,
+        '2026-12-01', '14:00', '15:00');
+    inbox.notifyOfBookingChange({ businessId, appointmentId: urgentAppointmentId,
+      clientId, actor: 'client', eventId: randomUUID(), cancelled: true,
+      clientName: 'Cliente', serviceName: 'Manicure', date: '2026-12-01', time: '14:00' });
+    const urgent = inbox.listInbox(ownerId, businessId).items
+      .find(item => item.appointmentId === urgentAppointmentId);
+    assert.equal(urgent?.requiresResponse, true);
+    assert.equal(urgent?.clientPhone, '11999991111');
+
+    inbox.notifyOfBookingChange({ businessId, appointmentId: urgentAppointmentId,
+      clientId, actor: 'owner', eventId: randomUUID(), cancelled: false,
+      clientName: 'Cliente', serviceName: 'Manicure', date: '2026-12-01', time: '14:00' });
+    const clientNotice = inbox.listInbox(clientId, businessId).items
+      .find(item => item.appointmentId === urgentAppointmentId);
+    assert.ok(clientNotice);
+    assert.equal('requiresResponse' in clientNotice, false);
+    assert.equal('clientPhone' in clientNotice, false);
+    assert.equal(inbox.listInbox(clientId, randomUUID()).items.length, 0);
+  });
 
   it('does not send a 24-hour reminder for a booking made after that deadline', async () => {
     const lateId = randomUUID();

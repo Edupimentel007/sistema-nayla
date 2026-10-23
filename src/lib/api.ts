@@ -204,6 +204,8 @@ export type InboxItem = {
   message: string
   readAt: string | null
   createdAt: string
+  requiresResponse?: boolean
+  clientPhone?: string | null
 }
 export type Inbox = { unread: number; items: InboxItem[] }
 

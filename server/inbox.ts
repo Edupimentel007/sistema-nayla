@@ -111,15 +111,26 @@ export function notifyOfBookingChange(input: { businessId: string; appointmentId
 }
 
 export function listInbox(userId: string, businessId: string, limit = 50) {
+  const recipient = db.prepare(`SELECT role FROM users WHERE id=? AND business_id=?`)
+    .get(userId, businessId) as { role: string } | undefined;
+  const isOwner = recipient?.role === 'owner';
   const unread = (db.prepare(`SELECT COUNT(*) AS count FROM app_notifications
     WHERE business_id=? AND recipient_user_id=? AND read_at IS NULL AND superseded_at IS NULL`)
     .get(businessId, userId) as { count: number }).count;
-  const rows = db.prepare(`SELECT id,appointment_id,kind,title,message,read_at,created_at
-    FROM app_notifications WHERE business_id=? AND recipient_user_id=? AND superseded_at IS NULL
-    ORDER BY created_at DESC,rowid DESC LIMIT ?`).all(businessId, userId, limit) as Row[];
+  const rows = db.prepare(`SELECT n.id,n.appointment_id,n.kind,n.title,n.message,n.read_at,n.created_at,
+      CASE WHEN ?=1 AND n.kind IN ('booking_changed','booking_cancelled')
+        THEN client.phone ELSE NULL END AS client_phone
+    FROM app_notifications n
+    LEFT JOIN appointments a ON a.id=n.appointment_id AND a.business_id=n.business_id
+    LEFT JOIN users client ON client.id=a.client_id AND client.business_id=n.business_id
+    WHERE n.business_id=? AND n.recipient_user_id=? AND n.superseded_at IS NULL
+    ORDER BY n.created_at DESC,n.rowid DESC LIMIT ?`)
+    .all(isOwner ? 1 : 0, businessId, userId, limit) as Row[];
   return { unread, items: rows.map(row => ({ id: row.id, appointmentId: row.appointment_id,
     kind: row.kind, title: row.title, message: row.message,
-    readAt: row.read_at, createdAt: row.created_at })) };
+    readAt: row.read_at, createdAt: row.created_at,
+    ...(isOwner && (row.kind === 'booking_changed' || row.kind === 'booking_cancelled')
+      ? { requiresResponse: true, clientPhone: row.client_phone || null } : {}) })) };
 }
 
 export function markInboxRead(userId: string, businessId: string, notificationId: string) {
